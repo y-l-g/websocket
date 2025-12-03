@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -27,7 +28,7 @@ type WebsocketModule struct {
 	NumWorkers    int    `json:"num_workers,omitempty"`
 	WebhookURL    string `json:"webhook_url,omitempty"`
 	WebhookSecret string `json:"webhook_secret,omitempty"`
-	RedisHost     string `json:"redis_host,omitempty"` // New
+	RedisHost     string `json:"redis_host,omitempty"`
 
 	hub          *Hub
 	workerHandle frankenphp.Workers
@@ -44,11 +45,35 @@ func (WebsocketModule) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
+// resolveAuthScript attempts to auto-discover the Laravel worker script
+func (m *WebsocketModule) resolveAuthScript() string {
+	// 1. Explicit configuration in Caddyfile wins
+	if m.AuthScript != "" {
+		return m.AuthScript
+	}
+
+	// 2. Check for Laravel Octane (Standard path)
+	if _, err := os.Stat("public/frankenphp-worker.php"); err == nil {
+		m.logger.Info("Auto-discovery: Found Laravel Octane worker", zap.String("path", "public/frankenphp-worker.php"))
+		return "public/frankenphp-worker.php"
+	}
+
+	// 3. Check for Standalone Websocket Worker (Our package path)
+	if _, err := os.Stat("public/websocket-worker.php"); err == nil {
+		m.logger.Info("Auto-discovery: Found standalone WebSocket worker", zap.String("path", "public/websocket-worker.php"))
+		return "public/websocket-worker.php"
+	}
+
+	// 4. Fallback (Legacy or root)
+	m.logger.Warn("Auto-discovery: No worker found in public/, defaulting to worker.php")
+	return "worker.php"
+}
+
 func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger(m)
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
-	// Metrics
+	// Metrics registration
 	StartMetricsServer()
 
 	if m.AuthPath == "" {
@@ -57,20 +82,20 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 	if m.NumWorkers == 0 {
 		m.NumWorkers = 2
 	}
-	if m.AuthScript == "" {
-		m.AuthScript = "worker.php"
-	}
+
+	// --- AUTO DISCOVERY LOGIC ---
+	scriptPath := m.resolveAuthScript()
+	// ----------------------------
 
 	m.workerHandle = frankenphpCaddy.RegisterWorkers(
 		"frankenphp-websocket-auth",
-		m.AuthScript,
+		scriptPath,
 		m.NumWorkers,
 	)
 
 	authProvider := NewWorkerAuthProvider(m.logger, m.workerHandle, m.AuthPath)
 	webhook := NewWebhookManager(m.logger, m.WebhookURL, m.WebhookSecret)
 
-	// Broker Selection
 	var broker Broker
 	if m.RedisHost != "" {
 		m.logger.Info("Using Redis Broker", zap.String("host", m.RedisHost))

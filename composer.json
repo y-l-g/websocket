@@ -13,5 +13,8 @@
             ]
         }
     },
-    "require": {}
+    "require": {},
+    "suggest": {
+        "laravel/octane": "Required for high-performance worker management and memory leak protection."
+    }
 }

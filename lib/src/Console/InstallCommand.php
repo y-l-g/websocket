@@ -7,22 +7,51 @@ use Illuminate\Console\Command;
 class InstallCommand extends Command
 {
     protected $signature = 'pogo:ws-install';
-    protected $description = 'Install the FrankenPHP WebSocket worker script';
+    protected $description = 'Setup the FrankenPHP WebSocket worker script';
 
     public function handle()
     {
-        $stub = __DIR__ . '/../../stubs/worker.php';
-        $target = base_path('frankenphp-worker.php');
+        $octanePath = public_path('frankenphp-worker.php');
+        $targetPath = public_path('websocket-worker.php');
 
-        if (file_exists($target) && !$this->confirm('frankenphp-worker.php already exists. Overwrite?', false)) {
+        if (file_exists($octanePath)) {
+            $this->components->info('Laravel Octane detected.');
+            $this->components->warn('Skipping standalone worker installation.');
+            $this->newLine();
+            $this->components->bulletList([
+                "Since you have Octane, you should use its optimized worker.",
+                "Please update your Caddyfile configuration:",
+                "<fg=yellow>auth_script public/frankenphp-worker.php</>"
+            ]);
             return;
         }
 
-        copy($stub, $target);
-        $this->info('Worker script published to: ' . $target);
-        $this->comment('Ensure your Caddyfile points auth_script to ./frankenphp-worker.php');
+        if (file_exists($targetPath)) {
+            $this->components->warn('The file [public/websocket-worker.php] already exists.');
+            $this->newLine();
+            $this->components->bulletList([
+                "We preserved your existing file.",
+                "Ensure your Caddyfile configuration uses it:",
+                "<fg=yellow>auth_script public/websocket-worker.php</>"
+            ]);
+            return;
+        }
 
-        // Optional: Publish Config if we had one
-        // $this->call('vendor:publish', ['--tag' => 'pogo-websocket-config']);
+        $stub = __DIR__ . '/../../stubs/worker.php';
+
+        if (!file_exists($stub)) {
+            $this->error('Package Error: Worker stub not found.');
+            return;
+        }
+
+        copy($stub, $targetPath);
+
+        $this->components->info('Worker installed successfully.');
+        $this->newLine();
+        $this->components->bulletList([
+            "File created at: <fg=gray>public/websocket-worker.php</>",
+            "Please update your Caddyfile configuration:",
+            "<fg=yellow>auth_script public/websocket-worker.php</>"
+        ]);
     }
 }

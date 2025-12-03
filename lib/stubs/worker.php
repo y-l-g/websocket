@@ -1,36 +1,57 @@
 <?php
 
+use Illuminate\Contracts\Http\Kernel;
+use Illuminate\Container\Container;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Facade;
+
+if ((!($_SERVER['FRANKENPHP_WORKER'] ?? false)) || !function_exists('frankenphp_handle_request')) {
+    exit(1);
+}
+
 define('LARAVEL_START', microtime(true));
 
-require __DIR__ . '/vendor/autoload.php';
+require __DIR__ . '/../vendor/autoload.php';
 
-$app = require __DIR__ . '/bootstrap/app.php';
+$baseApp = require __DIR__ . '/../bootstrap/app.php';
 
-// Bootstrap the kernel once
-$kernel = $app->make(Illuminate\Contracts\Http\Kernel::class);
+$baseApp->make(Kernel::class)->bootstrap();
 
-// The Worker Handler
-$handler = function () use ($kernel, $app) {
-    // 1. Capture the synthetic request from Go
-    $request = Illuminate\Http\Request::capture();
+$requestCount = 0;
+$maxRequests = $_ENV['MAX_REQUESTS'] ?? $_SERVER['MAX_REQUESTS'] ?? 1000;
 
-    // 2. Process via Laravel Kernel
+$handler = function () use ($baseApp) {
+    $app = clone $baseApp;
+
+    Container::setInstance($app);
+    Facade::setFacadeApplication($app);
+
+    $request = Request::capture();
+    $app->instance('request', $request);
+
+    $kernel = $app->make(Kernel::class);
+
     $response = $kernel->handle($request);
 
-    // 3. Send Output
     foreach ($response->headers->all() as $name => $values) {
         foreach ($values as $value) {
             header("$name: $value", false);
         }
     }
+
     http_response_code($response->getStatusCode());
     echo $response->getContent();
 
-    // 4. Terminate & Cleanup
     $kernel->terminate($request, $response);
+
+    unset($app, $kernel, $request, $response);
+
+    Container::setInstance($baseApp);
+    Facade::setFacadeApplication($baseApp);
 };
 
-// Start the Loop
-while (frankenphp_handle_request($handler)) {
-    gc_collect_cycles();
+while ($requestCount < $maxRequests && frankenphp_handle_request($handler)) {
+    $requestCount++;
 }
+
+gc_collect_cycles();
