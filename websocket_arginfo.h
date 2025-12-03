@@ -1,7 +1,8 @@
 /* This is a generated file, edit the .stub.php file instead.
- * Stub hash: f8c1261e3606ec7a53b8e1f4bcb8123e11db453c */
+ * Stub hash: c1bd924fd283cec8d49a0cfe0fe7b69812eba417 */
 
-ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_frankenphp_websocket_publish, 0, 3, _IS_BOOL, 0)
+ZEND_BEGIN_ARG_WITH_RETURN_TYPE_INFO_EX(arginfo_frankenphp_websocket_publish, 0, 4, _IS_BOOL, 0)
+	ZEND_ARG_TYPE_INFO(0, appId, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, channel, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, event, IS_STRING, 0)
 	ZEND_ARG_TYPE_INFO(0, data, IS_STRING, 0)

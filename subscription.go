@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/pogo/websocket/internal/protocol"
 	"go.uber.org/zap"
 )
 
@@ -20,9 +21,10 @@ type SubscriptionManager struct {
 	clientToUser map[string]map[*Client]string
 	logger       *zap.Logger
 	webhook      *WebhookManager
+	metrics      *Metrics
 }
 
-func NewSubscriptionManager(logger *zap.Logger, webhook *WebhookManager) *SubscriptionManager {
+func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *WebhookManager) *SubscriptionManager {
 	return &SubscriptionManager{
 		channels:     make(map[string]map[*Client]bool),
 		clients:      make(map[*Client]map[string]bool),
@@ -30,6 +32,7 @@ func NewSubscriptionManager(logger *zap.Logger, webhook *WebhookManager) *Subscr
 		clientToUser: make(map[string]map[*Client]string),
 		logger:       logger,
 		webhook:      webhook,
+		metrics:      metrics,
 	}
 }
 
@@ -70,7 +73,7 @@ func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userDat
 	}
 	sm.clients[client][channel] = true
 
-	metricSubscriptions.Inc() // Metric
+	sm.metrics.Subscriptions.Inc()
 
 	if isNewChannel && sm.webhook != nil {
 		sm.webhook.Notify("channel_occupied", channel)
@@ -79,19 +82,15 @@ func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userDat
 	if strings.HasPrefix(channel, "presence-") {
 		sm.handlePresenceSubscribe(client, channel, userData)
 	} else {
+		// Standard private/public channel success
 		msg, _ := json.Marshal(map[string]interface{}{
-			"event":   "pusher_internal:subscription_succeeded",
+			"event":   protocol.EventSubscriptionSucceeded,
 			"channel": channel,
 			"data":    "{}",
 		})
 		client.send <- msg
 	}
 }
-
-// ... (Rest of the file remains unchanged, BroadcastToOthers, handlePresenceSubscribe, etc.)
-// Just keeping the file consistent. The only change was adding metricSubscriptions.Inc()
-// I will not reprint the whole file to save space unless requested, assuming previous content is preserved.
-// Below are the required parts to be fully functional.
 
 func (sm *SubscriptionManager) BroadcastToOthers(sender *Client, channel, event string, data json.RawMessage) {
 	if !strings.HasPrefix(channel, "private-") && !strings.HasPrefix(channel, "presence-") {
@@ -129,6 +128,7 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 	var userID string
 	var userInfo interface{}
 
+	// Extract UserID/Info using generous parsing logic (Pusher/Laravel variations)
 	if v, ok := rawMap["user_id"]; ok {
 		s := fmt.Sprintf("%v", v)
 		if s != "" {
@@ -195,7 +195,7 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 	}
 	dataJson, _ := json.Marshal(presencePayload)
 	successMsg, _ := json.Marshal(map[string]interface{}{
-		"event":   "pusher_internal:subscription_succeeded",
+		"event":   protocol.EventSubscriptionSucceeded,
 		"channel": channel,
 		"data":    string(dataJson),
 	})
@@ -203,7 +203,7 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 
 	if !alreadyPresent {
 		addedMsg, _ := json.Marshal(map[string]interface{}{
-			"event":   "pusher_internal:member_added",
+			"event":   protocol.EventMemberAdded,
 			"channel": channel,
 			"data":    string(userInfoBytes),
 		})
@@ -250,7 +250,7 @@ func (sm *SubscriptionManager) handlePresenceUnsubscribe(client *Client, channel
 			if !stillPresent {
 				delete(sm.presence[channel], userID)
 				removedMsg, _ := json.Marshal(map[string]interface{}{
-					"event":   "pusher_internal:member_removed",
+					"event":   protocol.EventMemberRemoved,
 					"channel": channel,
 					"data":    fmt.Sprintf(`{"user_id":"%s"}`, userID),
 				})

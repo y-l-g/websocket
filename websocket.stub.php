@@ -2,6 +2,6 @@
 
 /** @generate-class-entries */
 
-function frankenphp_websocket_publish(string $channel, string $event, string $data): bool {}
+function frankenphp_websocket_publish(string $appId, string $channel, string $event, string $data): bool {}
 
 

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	"github.com/pogo/websocket/internal/protocol"
 	"go.uber.org/zap"
 )
 
@@ -14,7 +15,7 @@ const (
 	writeWait      = 10 * time.Second
 	pongWait       = 60 * time.Second
 	pingPeriod     = (pongWait * 9) / 10
-	maxMessageSize = 512 // 512 bytes limit for control messages (subscribe/ping)
+	maxMessageSize = 512
 )
 
 type Client struct {
@@ -37,15 +38,11 @@ type SubscribeData struct {
 
 func (c *Client) readPump() {
 	defer func() {
-		c.hub.unregister <- c
+		c.hub.Unregister(c)
 		c.conn.Close()
 	}()
 
-	// We allow slightly larger messages for Client Events (Whispers),
-	// but control messages should be small.
-	// gorilla/websocket ReadLimit applies to the frame.
-	c.conn.SetReadLimit(MaxDataSize + 1024)
-
+	c.conn.SetReadLimit(protocol.MaxDataSize + 1024)
 	c.conn.SetReadDeadline(time.Now().Add(pongWait))
 	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
 
@@ -68,17 +65,16 @@ func (c *Client) handleMessage(message []byte) {
 		return
 	}
 
-	// 1. Validate Event Length
-	if len(msg.Event) > MaxEventLength {
+	if len(msg.Event) > protocol.MaxEventLength {
 		return
 	}
 
-	// 2. Handle Client Events (Whispers)
+	// Whispers (Client Events)
 	if strings.HasPrefix(msg.Event, "client-") {
-		if msg.Channel == "" || len(msg.Channel) > MaxChannelLength {
+		if msg.Channel == "" || len(msg.Channel) > protocol.MaxChannelLength {
 			return
 		}
-		if len(msg.Data) > MaxDataSize {
+		if len(msg.Data) > protocol.MaxDataSize {
 			return
 		}
 
@@ -91,18 +87,19 @@ func (c *Client) handleMessage(message []byte) {
 		return
 	}
 
-	// 3. Handle Protocol Events
 	switch msg.Event {
-	case "pusher:ping":
-		c.send <- []byte(`{"event":"pusher:pong"}`)
+	case protocol.EventPing:
+		// Respond with Pong
+		// We manually construct the JSON to avoid overhead
+		c.send <- []byte(`{"event":"` + protocol.EventPong + `"}`)
 
-	case "pusher:subscribe":
+	case protocol.EventSubscribe:
 		var subData SubscribeData
 		if err := json.Unmarshal(msg.Data, &subData); err != nil {
 			return
 		}
 
-		if len(subData.Channel) > MaxChannelLength {
+		if len(subData.Channel) > protocol.MaxChannelLength {
 			return
 		}
 
@@ -112,9 +109,9 @@ func (c *Client) handleMessage(message []byte) {
 			result := c.hub.Authorize(c, subData.Channel)
 			if !result.Allowed {
 				errMsg, _ := json.Marshal(map[string]interface{}{
-					"event": "pusher:error",
+					"event": protocol.EventError,
 					"data": map[string]interface{}{
-						"code":    4009,
+						"code":    protocol.ErrorSubscriptionDenied,
 						"message": "Subscription to " + subData.Channel + " rejected",
 					},
 				})
@@ -130,12 +127,11 @@ func (c *Client) handleMessage(message []byte) {
 			AuthData: authData,
 		}
 
-	case "pusher:unsubscribe":
+	case protocol.EventUnsubscribe:
 		var subData SubscribeData
 		if err := json.Unmarshal(msg.Data, &subData); err != nil {
 			return
 		}
-		// No need to validate length here, if it's too long it won't match anyway
 		c.hub.unsubscribe <- &Subscription{Client: c, Channel: subData.Channel}
 	}
 }

@@ -26,15 +26,17 @@ zend_module_entry websocket_module_entry = {STANDARD_MODULE_HEADER,
                                          STANDARD_MODULE_PROPERTIES};
 PHP_FUNCTION(frankenphp_websocket_publish)
 {
+    zend_string *appId = NULL;
     zend_string *channel = NULL;
     zend_string *event = NULL;
     zend_string *data = NULL;
-    ZEND_PARSE_PARAMETERS_START(3, 3)
+    ZEND_PARSE_PARAMETERS_START(4, 4)
+        Z_PARAM_STR(appId)
         Z_PARAM_STR(channel)
         Z_PARAM_STR(event)
         Z_PARAM_STR(data)
     ZEND_PARSE_PARAMETERS_END();
-    int result = frankenphp_websocket_publish(channel, event, data);
+    int result = frankenphp_websocket_publish(appId, channel, event, data);
     RETURN_BOOL(result);
 }
 

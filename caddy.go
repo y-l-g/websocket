@@ -2,6 +2,8 @@ package websocket
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"fmt"
 	"net/http"
 	"os"
@@ -23,6 +25,7 @@ func init() {
 }
 
 type WebsocketModule struct {
+	AppID         string `json:"app_id,omitempty"`
 	AuthPath      string `json:"auth_path,omitempty"`
 	AuthScript    string `json:"auth_script,omitempty"`
 	NumWorkers    int    `json:"num_workers,omitempty"`
@@ -31,6 +34,7 @@ type WebsocketModule struct {
 	RedisHost     string `json:"redis_host,omitempty"`
 
 	hub          *Hub
+	metrics      *Metrics
 	workerHandle frankenphp.Workers
 	logger       *zap.Logger
 	upgrader     websocket.Upgrader
@@ -45,26 +49,18 @@ func (WebsocketModule) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-// resolveAuthScript attempts to auto-discover the Laravel worker script
 func (m *WebsocketModule) resolveAuthScript() string {
-	// 1. Explicit configuration in Caddyfile wins
 	if m.AuthScript != "" {
 		return m.AuthScript
 	}
-
-	// 2. Check for Laravel Octane (Standard path)
 	if _, err := os.Stat("public/frankenphp-worker.php"); err == nil {
 		m.logger.Info("Auto-discovery: Found Laravel Octane worker", zap.String("path", "public/frankenphp-worker.php"))
 		return "public/frankenphp-worker.php"
 	}
-
-	// 3. Check for Standalone Websocket Worker (Our package path)
 	if _, err := os.Stat("public/websocket-worker.php"); err == nil {
 		m.logger.Info("Auto-discovery: Found standalone WebSocket worker", zap.String("path", "public/websocket-worker.php"))
 		return "public/websocket-worker.php"
 	}
-
-	// 4. Fallback (Legacy or root)
 	m.logger.Warn("Auto-discovery: No worker found in public/, defaulting to worker.php")
 	return "worker.php"
 }
@@ -73,8 +69,7 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger(m)
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
-	// Metrics registration
-	StartMetricsServer()
+	m.metrics = NewMetrics(ctx.GetMetricsRegistry())
 
 	if m.AuthPath == "" {
 		m.AuthPath = "/broadcasting/auth"
@@ -83,17 +78,21 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		m.NumWorkers = 2
 	}
 
-	// --- AUTO DISCOVERY LOGIC ---
+	if m.AppID == "" {
+		hash := md5.Sum([]byte(m.AuthPath))
+		m.AppID = hex.EncodeToString(hash[:])
+		m.logger.Info("Auto-generated AppID", zap.String("app_id", m.AppID))
+	}
+
 	scriptPath := m.resolveAuthScript()
-	// ----------------------------
 
 	m.workerHandle = frankenphpCaddy.RegisterWorkers(
-		"frankenphp-websocket-auth",
+		"frankenphp-websocket-auth-"+m.AppID,
 		scriptPath,
 		m.NumWorkers,
 	)
 
-	authProvider := NewWorkerAuthProvider(m.logger, m.workerHandle, m.AuthPath)
+	authProvider := NewWorkerAuthProvider(m.logger, m.metrics, m.workerHandle, m.AuthPath)
 	webhook := NewWebhookManager(m.logger, m.WebhookURL, m.WebhookSecret)
 
 	var broker Broker
@@ -105,9 +104,9 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		broker = NewMemoryBroker()
 	}
 
-	m.hub = NewHub(m.logger, m.ctx, authProvider, webhook, broker)
+	m.hub = NewHub(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker)
 
-	SetGlobalHub(m.hub)
+	RegisterHub(m.AppID, m.hub)
 
 	go m.hub.Run()
 
@@ -121,8 +120,11 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 }
 
 func (m *WebsocketModule) Cleanup() error {
-	m.cancel()
-	SetGlobalHub(nil)
+	m.cancel() // Signals Hub to stop
+	if m.hub != nil {
+		m.hub.Wait() // Block until all connections are drained
+		UnregisterHub(m.AppID)
+	}
 	return nil
 }
 
@@ -150,7 +152,8 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 		Headers: headers,
 	}
 
-	m.hub.register <- client
+	// Direct Dispatch to Shard via Hub method
+	m.hub.Register(client)
 
 	go client.writePump()
 	client.readPump()
@@ -162,6 +165,11 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	for d.Next() {
 		for d.NextBlock(0) {
 			switch d.Val() {
+			case "app_id":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.AppID = d.Val()
 			case "auth_path":
 				if !d.NextArg() {
 					return d.ArgErr()
