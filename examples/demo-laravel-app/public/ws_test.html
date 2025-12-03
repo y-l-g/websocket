@@ -1,0 +1,74 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Laravel WS Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .log { border: 1px solid #ccc; padding: 10px; height: 300px; overflow-y: scroll; background: #f9f9f9; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>Laravel Private Channel Test</h1>
+    <div>Status: <span id="status">Disconnected</span></div>
+    <div class="log" id="output"></div>
+
+    <script>
+        // Use relative path to ensure cookies are sent
+        const ws = new WebSocket("ws://" + window.location.host + "/ws");
+        const out = document.getElementById("output");
+        
+        // We need to know our User ID. In a real app, this comes from meta tags or API.
+        // For this test, we'll try ID 1 (assuming /login-test created ID 1).
+        const userId = 1; 
+        const channel = "private-test." + userId;
+
+        function log(msg, type = '') {
+            const div = document.createElement("div");
+            div.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+            if (type) div.className = type;
+            out.prepend(div);
+        }
+
+        ws.onopen = function() {
+            document.getElementById("status").textContent = "Connected";
+            log("WebSocket Open", "success");
+
+            // Subscribe to Private Channel
+            log("Subscribing to " + channel + "...");
+            ws.send(JSON.stringify({
+                event: "pusher:subscribe",
+                data: { channel: channel }
+            }));
+        };
+
+        ws.onmessage = function(e) {
+            const payload = JSON.parse(e.data);
+            
+            if (payload.event === "pusher_internal:subscription_succeeded") {
+                log("Auth Success & Subscribed!", "success");
+            } 
+            else if (payload.event === "pusher:error") {
+                log("Error: " + JSON.stringify(payload.data), "error");
+            } 
+            else if (payload.event === "test.event") {
+                // Laravel broadcasts payload inside 'data' string
+                let eventData = payload.data;
+                try { eventData = JSON.parse(payload.data); } catch(e){}
+                
+                log("EVENT RECEIVED: " + eventData.message, "success");
+            } 
+            else {
+                log("RX: " + e.data);
+            }
+        };
+
+        ws.onclose = function() {
+            document.getElementById("status").textContent = "Disconnected";
+            log("Connection Closed", "error");
+        };
+    </script>
+</body>
+</html>

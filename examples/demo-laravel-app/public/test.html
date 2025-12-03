@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>WS Test</title>
+</head>
+<body>
+    <h1>WebSocket Test</h1>
+    <div id="output"></div>
+    <script>
+        const ws = new WebSocket("ws://localhost:8000/ws");
+        const out = document.getElementById("output");
+        function log(msg) { out.innerHTML += "<div>" + msg + "</div>"; }
+
+    ws.onopen = function() {
+        log("Connected");
+        // Should Succeed
+        ws.send(JSON.stringify({
+            event: "pusher:subscribe",
+            data: {channel: "private-allowed"}
+        }));
+
+        ws.send(JSON.stringify({
+            event: "pusher:subscribe",
+            data: {channel: "test-channel"}
+        }));
+        
+        // Should Fail
+        setTimeout(() => {
+            ws.send(JSON.stringify({
+                event: "pusher:subscribe",
+                data: {channel: "private-forbidden"}
+            }));
+        }, 500);
+    };
+
+            ws.onmessage = function(e) {
+                log("RX: " + e.data);
+            };
+            
+            ws.onclose = function() { log("Disconnected"); };
+        </script>
+    </body>
+</html>

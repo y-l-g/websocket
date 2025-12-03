@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Laravel Presence Channel Test</title>
+        <style>
+            body {
+                font-family: "Consolas", "Monaco", monospace;
+                padding: 20px;
+                background-color: #f4f4f4;
+            }
+            h1 {
+                margin-bottom: 10px;
+            }
+            .status-bar {
+                background: #333;
+                color: #fff;
+                padding: 10px;
+                margin-bottom: 20px;
+                border-radius: 4px;
+            }
+            .log {
+                background: #fff;
+                border: 1px solid #ddd;
+                padding: 15px;
+                height: 500px;
+                overflow-y: scroll;
+                border-radius: 4px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+            }
+            .entry {
+                margin-bottom: 5px;
+                padding-bottom: 5px;
+                border-bottom: 1px solid #eee;
+                font-size: 13px;
+            }
+            .timestamp {
+                color: #888;
+                margin-right: 10px;
+            }
+            .success {
+                color: #2e7d32;
+                font-weight: bold;
+            } /* Green */
+            .info {
+                color: #0277bd;
+            } /* Blue */
+            .warn {
+                color: #ef6c00;
+            } /* Orange */
+            .error {
+                color: #c62828;
+                font-weight: bold;
+            } /* Red */
+            .data-dump {
+                color: #555;
+                font-size: 0.9em;
+                margin-top: 2px;
+                white-space: pre-wrap;
+                word-break: break-all;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Presence Channel Test</h1>
+        <div class="status-bar">
+            Status: <span id="status">Disconnected</span> | Channel:
+            <strong>presence-room.1</strong>
+        </div>
+        <div style="margin-bottom: 20px">
+            <button onclick="sendTyping()">📢 Send 'Typing' Event</button>
+        </div>
+        <div class="log" id="log"></div>
+
+        <script>
+            // Ensure you are logged in first via /login-test
+            const wsUrl = "ws://" + window.location.host + "/ws";
+            const channelName = "presence-room.1";
+
+            const ws = new WebSocket(wsUrl);
+            const logDiv = document.getElementById("log");
+            const statusSpan = document.getElementById("status");
+
+            function log(msg, type = "normal", data = null) {
+                const div = document.createElement("div");
+                div.className = "entry";
+
+                const time = new Date().toLocaleTimeString();
+                let html = `<span class="timestamp">[${time}]</span> <span class="${type}">${msg}</span>`;
+
+                if (data) {
+                    // Pretty print JSON
+                    const jsonStr =
+                        typeof data === "string"
+                            ? data
+                            : JSON.stringify(data, null, 2);
+                    html += `<div class="data-dump">${jsonStr}</div>`;
+                }
+
+                div.innerHTML = html;
+                logDiv.prepend(div);
+            }
+
+            ws.onopen = function () {
+                statusSpan.textContent = "Connected";
+                statusSpan.style.color = "#4caf50";
+                log("WebSocket Connection Established", "success");
+
+                // Subscribe to Presence Channel
+                log(`Subscribing to ${channelName}...`, "info");
+                ws.send(
+                    JSON.stringify({
+                        event: "pusher:subscribe",
+                        data: { channel: channelName },
+                    })
+                );
+            };
+
+            ws.onmessage = function (event) {
+                try {
+                    const payload = JSON.parse(event.data);
+
+                    // Parse inner 'data' string if it exists and looks like JSON
+                    let eventData = payload.data;
+                    if (
+                        typeof eventData === "string" &&
+                        (eventData.startsWith("{") || eventData.startsWith("["))
+                    ) {
+                        try {
+                            eventData = JSON.parse(eventData);
+                        } catch (e) {}
+                    }
+
+                    switch (payload.event) {
+                        case "pusher_internal:subscription_succeeded":
+                            log("✅ Subscription Succeeded!", "success");
+                            log("👥 Initial Presence List:", "info", eventData);
+                            break;
+
+                        case "pusher_internal:member_added":
+                            log("➕ Member Joined", "info", eventData);
+                            break;
+
+                        case "pusher_internal:member_removed":
+                            log("➖ Member Left", "warn", eventData);
+                            break;
+
+                        case "pusher:error":
+                            log("❌ Error Received", "error", eventData);
+                            break;
+
+                        case "pusher:pong":
+                            // Ignore heartbeats in log to reduce noise
+                            // console.log("Pong");
+                            break;
+
+                        default:
+                            log(
+                                `Received Event: ${payload.event}`,
+                                "normal",
+                                eventData
+                            );
+                    }
+                } catch (e) {
+                    log("Raw Message (Parse Error)", "error", event.data);
+                }
+            };
+
+            ws.onclose = function () {
+                statusSpan.textContent = "Disconnected";
+                statusSpan.style.color = "#f44336";
+                log("Connection Closed", "error");
+            };
+
+            ws.onerror = function (e) {
+                log("WebSocket Error", "error", e);
+            };
+
+            function sendTyping() {
+                if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+                const msg = {
+                    event: "client-typing",
+                    channel: channelName,
+                    data: { user: "User " + Math.floor(Math.random() * 100) },
+                };
+
+                ws.send(JSON.stringify(msg));
+                log("Sent: client-typing", "info");
+            }
+        </script>
+    </body>
+</html>
