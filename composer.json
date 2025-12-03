@@ -3,7 +3,7 @@
     "description": "FrankenPHP WebSocket Driver",
     "autoload": {
         "psr-4": {
-            "Pogo\\WebSocket\\": "src/"
+            "Pogo\\WebSocket\\": "lib/src/"
         }
     },
     "extra": {
