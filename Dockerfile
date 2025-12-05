@@ -14,8 +14,6 @@ RUN CGO_ENABLED=1 \
     --with github.com/dunglas/frankenphp=./ \
     --with github.com/dunglas/frankenphp/caddy=./caddy/ \
     --with github.com/dunglas/caddy-cbrotli \
-    --with github.com/dunglas/mercure/caddy \
-    --with github.com/dunglas/vulcain/caddy \
     --with github.com/y-l-g/websocket=/websocket/
 
 FROM dunglas/frankenphp:1.10-php8.5.0-bookworm AS runner
