@@ -122,7 +122,7 @@ WS_APP_ID=pogo-app
 
 # Frontend Configuration
 VITE_POGO_HOST=localhost
-VITE_POGO_PORT=8000
+VITE_POGO_PORT=80
 VITE_POGO_WSS_PORT=443
 ```
 

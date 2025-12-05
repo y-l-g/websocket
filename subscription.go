@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/pogo/websocket/internal/protocol"
+	"github.com/y-l-g/websocket/internal/protocol"
 	"go.uber.org/zap"
 )
 

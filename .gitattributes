@@ -26,3 +26,5 @@ client.go export-ignore
 shard.go export-ignore
 subscription.go export-ignore
 webhook.go export-ignore
+
+examples export-ignore 

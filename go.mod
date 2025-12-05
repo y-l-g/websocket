@@ -1,4 +1,4 @@
-module github.com/pogo/websocket
+module github.com/y-l-g/websocket
 
 go 1.25.0
 

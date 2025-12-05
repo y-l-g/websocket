@@ -18,7 +18,7 @@ import (
 
 func init() {
 	caddy.RegisterModule(WebsocketModule{})
-	httpcaddyfile.RegisterHandlerDirective("frankenphp_websocket", parseCaddyfile)
+	httpcaddyfile.RegisterHandlerDirective("pogo_websocket", parseCaddyfile)
 }
 
 type WebsocketModule struct {
@@ -41,7 +41,7 @@ type WebsocketModule struct {
 
 func (WebsocketModule) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
-		ID:  "http.handlers.frankenphp_websocket",
+		ID:  "http.handlers.pogo_websocket",
 		New: func() caddy.Module { return new(WebsocketModule) },
 	}
 }
