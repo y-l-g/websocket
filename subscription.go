@@ -41,7 +41,6 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	if len(clients) == 0 {
 		return
 	}
-
 	payload, err := json.Marshal(map[string]interface{}{
 		"event":   msg.Event,
 		"channel": msg.Channel,
@@ -51,7 +50,6 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 		sm.logger.Error("JSON marshal error", zap.Error(err))
 		return
 	}
-
 	for client := range clients {
 		select {
 		case client.send <- payload:
@@ -82,7 +80,6 @@ func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userDat
 	if strings.HasPrefix(channel, "presence-") {
 		sm.handlePresenceSubscribe(client, channel, userData)
 	} else {
-		// Standard private/public channel success
 		msg, _ := json.Marshal(map[string]interface{}{
 			"event":   protocol.EventSubscriptionSucceeded,
 			"channel": channel,
@@ -125,38 +122,31 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 		return
 	}
 
+	if channelDataStr, ok := rawMap["channel_data"].(string); ok {
+		var channelData map[string]interface{}
+		if err := json.Unmarshal([]byte(channelDataStr), &channelData); err == nil {
+			rawMap = channelData
+		}
+	}
+
 	var userID string
 	var userInfo interface{}
 
-	// Extract UserID/Info using generous parsing logic (Pusher/Laravel variations)
 	if v, ok := rawMap["user_id"]; ok {
-		s := fmt.Sprintf("%v", v)
-		if s != "" {
-			userID = s
-		}
+		userID = fmt.Sprintf("%v", v)
 	}
-	if v, ok := rawMap["info"]; ok {
+	if v, ok := rawMap["user_info"]; ok {
 		userInfo = v
-	} else if v, ok := rawMap["user_info"]; ok {
+	} else if v, ok := rawMap["info"]; ok {
 		userInfo = v
 	} else {
 		userInfo = rawMap
 	}
 
 	if userID == "" {
-		var nested map[string]interface{}
 		if v, ok := rawMap["user_info"].(map[string]interface{}); ok {
-			nested = v
-		} else if v, ok := rawMap["info"].(map[string]interface{}); ok {
-			nested = v
-		}
-		if nested != nil {
-			if v, ok := nested["user_id"]; ok {
-				userID = fmt.Sprintf("%v", v)
-			}
-			if v, ok := nested["info"]; ok {
-				userInfo = v
-			} else if v, ok := nested["user_info"]; ok {
+			if uid, exists := v["id"]; exists {
+				userID = fmt.Sprintf("%v", uid)
 				userInfo = v
 			}
 		}
@@ -202,10 +192,15 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 	client.send <- successMsg
 
 	if !alreadyPresent {
+		addedData := map[string]interface{}{
+			"user_id":   userID,
+			"user_info": userInfo,
+		}
+		addedDataBytes, _ := json.Marshal(addedData)
 		addedMsg, _ := json.Marshal(map[string]interface{}{
 			"event":   protocol.EventMemberAdded,
 			"channel": channel,
-			"data":    string(userInfoBytes),
+			"data":    string(addedDataBytes),
 		})
 		for otherClient := range sm.channels[channel] {
 			if otherClient != client {
@@ -249,10 +244,14 @@ func (sm *SubscriptionManager) handlePresenceUnsubscribe(client *Client, channel
 			}
 			if !stillPresent {
 				delete(sm.presence[channel], userID)
+				removedData := map[string]interface{}{
+					"user_id": userID,
+				}
+				removedDataBytes, _ := json.Marshal(removedData)
 				removedMsg, _ := json.Marshal(map[string]interface{}{
 					"event":   protocol.EventMemberRemoved,
 					"channel": channel,
-					"data":    fmt.Sprintf(`{"user_id":"%s"}`, userID),
+					"data":    string(removedDataBytes),
 				})
 				if clients, ok := sm.channels[channel]; ok {
 					for sub := range clients {

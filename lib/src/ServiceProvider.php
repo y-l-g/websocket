@@ -13,7 +13,7 @@ class ServiceProvider extends BaseServiceProvider
     {
         // 1. Register the Driver
         Broadcast::extend('frankenphp', function ($app, $config) {
-            return new Broadcaster();
+            return new Broadcaster($config);
         });
 
         // 2. Register the Route

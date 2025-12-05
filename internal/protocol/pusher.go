@@ -9,6 +9,7 @@ const (
 	EventUnsubscribe = "pusher:unsubscribe"
 
 	// Server -> Client
+	EventConnectionEstablished = "pusher:connection_established"
 	EventError                 = "pusher:error"
 	EventSubscriptionSucceeded = "pusher_internal:subscription_succeeded"
 	EventMemberAdded           = "pusher_internal:member_added"

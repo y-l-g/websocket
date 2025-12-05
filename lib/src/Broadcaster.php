@@ -14,15 +14,7 @@ class Broadcaster extends BaseBroadcaster
 
     public function __construct(array $config = [])
     {
-        // 1. Try config
-        $this->appId = $config['app_id'] ?? null;
-
-        // 2. Fallback: Generate same hash as Caddy if using default auth path
-        // This matches the auto-generation logic in caddy.go
-        if (!$this->appId) {
-            $path = $config['options']['auth_path'] ?? '/broadcasting/auth';
-            $this->appId = md5($path);
-        }
+        $this->appId = $config['app_id'] ?? 'frankenphp-app';
     }
 
     public function auth($request)
@@ -35,21 +27,25 @@ class Broadcaster extends BaseBroadcaster
             throw $e;
         }
 
-        return $this->validAuthenticationResponse($request, $result);
+        $response = [
+            'auth' => $this->appId . ':dummy_signature_for_client',
+        ];
+
+        if ($request->channel_name && str_starts_with($request->channel_name, 'presence-')) {
+            $channelData = [
+                'user_id' => (string) ($result['id'] ?? $request->user()->getAuthIdentifier()),
+                'user_info' => $result,
+            ];
+
+            $response['channel_data'] = json_encode($channelData);
+        }
+
+        return $response;
     }
 
     public function validAuthenticationResponse($request, $result)
     {
-        if (is_bool($result)) {
-            return [];
-        }
-
-        // Return a flat structure. 
-        // 'info' contains the actual data from the channel callback.
-        return [
-            'user_id' => (string) ($result['id'] ?? null),
-            'info' => $result,
-        ];
+        return $result;
     }
 
     public function broadcast(array $channels, $event, array $payload = [])

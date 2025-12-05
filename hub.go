@@ -131,11 +131,11 @@ func (h *Hub) Unregister(c *Client) {
 	h.conns.Add(-1)
 	h.metrics.Connections.Dec()
 
-	shard := h.getShard(c.ID)
-
-	select {
-	case shard.remove <- c:
-	case <-h.ctx.Done():
+	for _, shard := range h.shards {
+		select {
+		case shard.remove <- c:
+		case <-h.ctx.Done():
+		}
 	}
 
 	h.wg.Done()

@@ -15,13 +15,10 @@ import (
 )
 
 const (
-	AuthCacheTTL     = 30 * time.Second
-	CBThreshold      = 5
-	CBResetTimeout   = 10 * time.Second
-	MaxAuthCacheSize = 10000
+	CBThreshold    = 5
+	CBResetTimeout = 10 * time.Second
 )
 
-// POOL: Reduces GC pressure during connection storms
 var recorderPool = sync.Pool{
 	New: func() interface{} {
 		return httptest.NewRecorder()
@@ -71,11 +68,6 @@ type AuthResult struct {
 	UserData json.RawMessage
 }
 
-type CachedAuth struct {
-	Result    AuthResult
-	ExpiresAt time.Time
-}
-
 type AuthProvider interface {
 	Authorize(client *Client, channel string) AuthResult
 }
@@ -85,10 +77,7 @@ type WorkerAuthProvider struct {
 	authPath string
 	logger   *zap.Logger
 	metrics  *Metrics
-
-	cache   map[string]CachedAuth
-	cacheMu sync.RWMutex
-	breaker *CircuitBreaker
+	breaker  *CircuitBreaker
 }
 
 func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker frankenphp.Workers, authPath string) *WorkerAuthProvider {
@@ -97,69 +86,22 @@ func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker frankenp
 		metrics:  metrics,
 		worker:   worker,
 		authPath: authPath,
-		cache:    make(map[string]CachedAuth),
 		breaker:  NewCircuitBreaker(),
 	}
 }
 
-func (ap *WorkerAuthProvider) addToCache(key string, result AuthResult) {
-	ap.cacheMu.Lock()
-	defer ap.cacheMu.Unlock()
-
-	if len(ap.cache) >= MaxAuthCacheSize {
-		for k := range ap.cache {
-			delete(ap.cache, k)
-			break
-		}
-	}
-
-	ap.cache[key] = CachedAuth{
-		Result:    result,
-		ExpiresAt: time.Now().Add(AuthCacheTTL),
-	}
-}
-
-func (ap *WorkerAuthProvider) getFromCache(key string) (AuthResult, bool) {
-	ap.cacheMu.RLock()
-	defer ap.cacheMu.RUnlock()
-
-	cached, ok := ap.cache[key]
-	if !ok {
-		return AuthResult{}, false
-	}
-
-	if time.Now().After(cached.ExpiresAt) {
-		go func(k string) {
-			ap.cacheMu.Lock()
-			delete(ap.cache, k)
-			ap.cacheMu.Unlock()
-		}(key)
-		return AuthResult{}, false
-	}
-
-	return cached.Result, true
-}
-
 func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResult {
-	// 1. Check Cache
 	cookie := client.Headers.Get("Cookie")
-	var cacheKey string
-	if cookie != "" {
-		cacheKey = channel + "|" + cookie
-		if res, hit := ap.getFromCache(cacheKey); hit {
-			ap.logger.Debug("Auth: cache hit", zap.String("channel", channel))
-			return res
-		}
+	if cookie == "" {
+		ap.logger.Debug("Auth: No cookie received from client", zap.String("id", client.ID))
 	}
 
-	// 2. Check Circuit Breaker
 	if !ap.breaker.Allow() {
 		ap.metrics.BreakerTripped.Inc()
 		ap.logger.Warn("Auth: circuit open, failing fast", zap.String("channel", channel))
 		return AuthResult{Allowed: false}
 	}
 
-	// 3. Measure Duration
 	start := time.Now()
 	defer func() {
 		ap.metrics.AuthDuration.Observe(time.Since(start).Seconds())
@@ -187,18 +129,14 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResu
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	// --- OPTIMIZATION START ---
-	// Get recorder from pool to avoid allocation
 	rr := recorderPool.Get().(*httptest.ResponseRecorder)
 	defer func() {
-		// Reset for reuse
 		rr.Body.Reset()
 		rr.HeaderMap = make(http.Header)
 		rr.Code = 200
 		rr.Flushed = false
 		recorderPool.Put(rr)
 	}()
-	// --- OPTIMIZATION END ---
 
 	if ap.worker == nil {
 		ap.logger.Error("Auth: worker not initialized")
@@ -228,14 +166,9 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResu
 	}
 
 	body, _ := io.ReadAll(rr.Body)
-	result := AuthResult{
+
+	return AuthResult{
 		Allowed:  true,
 		UserData: body,
 	}
-
-	if cookie != "" {
-		ap.addToCache(cacheKey, result)
-	}
-
-	return result
 }

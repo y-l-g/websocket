@@ -1,0 +1,27 @@
+{
+    debug
+    frankenphp
+    order frankenphp_websocket before php_server
+    metrics {
+		per_host
+	}
+    admin off
+}
+
+:80 {
+    route /app/* {
+        frankenphp_websocket {
+            app_id          frankenphp-app
+            auth_path       /frankenphp/auth
+            auth_script     public/frankenphp-worker.php
+            num_workers     2
+
+            webhook_url     http://localhost/webhook
+            webhook_secret  super-secret-key
+            
+            # redis_host      localhost:6379
+        }
+    }
+    root * ./public
+    php_server
+}
