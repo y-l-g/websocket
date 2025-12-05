@@ -1,0 +1,8 @@
+parameters:
+    level: 10
+    paths:
+        - lib/src/Http
+        - lib/src/Broadcaster.php
+        - lib/src/ServiceProvider.php
+    scanFiles:
+        - websocket.stub.php

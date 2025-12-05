@@ -15,6 +15,6 @@ Broadcast::channel('war-room', function ($user) {
     return [
         'id' => $user->id,
         'name' => $user->name,
-        'color' => '#' . substr(md5($user->name), 0, 6)
+        'color' => '#' . substr(md5($user->name), 0, 6),
     ];
 });

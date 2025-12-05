@@ -7,7 +7,6 @@ use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\PrivateChannel;
 
 new class extends Component {
-
     // --- STATE ---
     public string $lobbyInput = '';
     public string $privateInput = '';
@@ -16,8 +15,9 @@ new class extends Component {
 
     public function dispatchLobby()
     {
-        if (empty(trim($this->lobbyInput)))
+        if (empty(trim($this->lobbyInput))) {
             return;
+        }
 
         $user = Auth::user();
         $msg = $this->lobbyInput;
@@ -49,8 +49,9 @@ new class extends Component {
 
     public function dispatchPrivate()
     {
-        if (empty(trim($this->privateInput)))
+        if (empty(trim($this->privateInput))) {
             return;
+        }
 
         $user = Auth::user();
         $msg = $this->privateInput;

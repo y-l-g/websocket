@@ -11,35 +11,44 @@ It eliminates the need for external Node.js sidecars or separate PHP daemons. By
 ## 🏗 Technical Architecture
 
 ### Tech Stack
-*   **Core Engine:** Go
-*   **Protocol:** Pusher Protocol v7
-*   **Scaling Layer:** Redis Pub/Sub
-*   **Observability:** Prometheus
+
+* **Core Engine:** Go
+* **Protocol:** Pusher Protocol v7
+* **Scaling Layer:** Redis Pub/Sub
+* **Observability:** Prometheus
 
 ### 1. Hexagonal Architecture & Isolation
+
 The Go `Hub` manages the WebSocket lifecycle (TCP, Pings, Fan-out). It knows nothing about your application domain. It communicates with PHP only via strictly defined ports:
-*   **Inbound (PHP -> Go):** A CGO-exported function `pogo_websocket_publish` allows PHP to broadcast messages instantly via shared memory.
-*   **Outbound (Go -> PHP):** The `WorkerAuthProvider` uses FrankenPHP's `SendRequest` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
+
+* **Inbound (PHP -> Go):** A CGO-exported function `pogo_websocket_publish` allows PHP to broadcast messages instantly via shared memory.
+* **Outbound (Go -> PHP):** The `WorkerAuthProvider` uses FrankenPHP's `SendRequest` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
 
 ### 2. Sharding & Concurrency
+
 To prevent lock contention on the central Hub during high loads, the system utilizes a **32-Shard Architecture**:
-*   **Parallel Handshakes:** Client registration is dispatched immediately to shards based on `fnv32(client_id) % 32`.
-*   **Lock-Free Broadcasting:** Messages are routed to shards based on channel names, allowing independent broadcasting routines to run in parallel.
-*   **Graceful Shutdown:** The engine utilizes `sync.WaitGroup` barriers. On SIGTERM, it stops accepting new connections, sends a `1001 Going Away` frame to all clients, and waits for sockets to drain before exiting.
+
+* **Parallel Handshakes:** Client registration is dispatched immediately to shards based on `fnv32(client_id) % 32`.
+* **Lock-Free Broadcasting:** Messages are routed to shards based on channel names, allowing independent broadcasting routines to run in parallel.
+* **Graceful Shutdown:** The engine utilizes `sync.WaitGroup` barriers. On SIGTERM, it stops accepting new connections, sends a `1001 Going Away` frame to all clients, and waits for sockets to drain before exiting.
 
 ### 3. Resilience & Security
-*   **Circuit Breaker:** Authentication requests are protected. If the PHP backend stalls, the Go layer "fails fast" to prevent a thundering herd of goroutines from exhausting system resources.
-*   **Memory Pooling:** To offset the cost of real-time auth, the `WorkerAuthProvider` utilizes `sync.Pool` for HTTP Recorders, drastically reducing Garbage Collection pressure during connection storms.
+
+* **Circuit Breaker:** Authentication requests are protected. If the PHP backend stalls, the Go layer "fails fast" to prevent a thundering herd of goroutines from exhausting system resources.
+* **Memory Pooling:** To offset the cost of real-time auth, the `WorkerAuthProvider` utilizes `sync.Pool` for HTTP Recorders, drastically reducing Garbage Collection pressure during connection storms.
 
 ### 4. Distributed Scaling
-*   **Memory Broker (Default):** For single-server setups, messages flow through Go channels.
-*   **Redis Broker:** For Cluster setups, the engine switches to a Redis Pub/Sub adapter. It features an **Exponential Backoff Reconnection Loop**, ensuring the process survives Redis outages without crashing.
+
+* **Memory Broker (Default):** For single-server setups, messages flow through Go channels.
+* **Redis Broker:** For Cluster setups, the engine switches to a Redis Pub/Sub adapter. It features an 
+**Exponential Backoff Reconnection Loop**, ensuring the process survives Redis outages without crashing.
 
 ---
 
 ## 📦 Installation
 
 ### Step 1: Build the Binary
+
 You must compile FrankenPHP with this custom module included.
 
 ```bash
@@ -55,6 +64,7 @@ xcaddy build \
 ```
 
 ### Step 2: Install the PHP Driver
+
 In your Laravel application:
 
 ```bash
@@ -62,9 +72,10 @@ composer require pogo/websocket
 ```
 
 Run the automated installer. This command will:
-1.  Install frontend dependencies (`laravel-echo`, `pusher-js`).
-2.  Configure `config/broadcasting.php`.
-3.  Update your `.env`.
+
+1. Install frontend dependencies (`laravel-echo`, `pusher-js`).
+2. Configure `config/broadcasting.php`.
+3. Update your `.env`.
 
 ```bash
 php artisan pogo:ws-install
@@ -75,6 +86,7 @@ php artisan pogo:ws-install
 ## ⚙️ Configuration
 
 ### Caddyfile Configuration
+
 The module is configured via the `pogo_websocket` directive within your `Caddyfile`. Use a dedicated route to intercept WebSocket traffic.
 
 ```caddy
@@ -131,6 +143,7 @@ VITE_POGO_WSS_PORT=443
 ## 💻 Usage Guide
 
 ### Starting the Server
+
 Run the compiled binary. It will start Caddy, the PHP Application, and the WebSocket Engine simultaneously.
 
 ```bash
@@ -138,6 +151,7 @@ Run the compiled binary. It will start Caddy, the PHP Application, and the WebSo
 ```
 
 ### Client-Side (JavaScript)
+
 The server is fully compatible with `pusher-js` and `laravel-echo`. The installer provides a configured `echo.js`.
 
 ```javascript
@@ -168,6 +182,7 @@ window.Echo = new Echo({
 ## 📡 API & Core Functionality
 
 ### 1. Publishing Events (PHP)
+
 Use the standard Laravel Event system. The driver automatically routes this to the native CGO function.
 
 ```php
@@ -194,14 +209,17 @@ Broadcast::channel('chat.{id}', function ($user, $id) {
 ```
 
 **WebSocket Events (Pusher Protocol):**
-*   `pusher_internal:subscription_succeeded`: Sent to the user connecting. Contains the full list of current members.
-*   `pusher_internal:member_added`: Broadcast to others when a *new* user joins.
-*   `pusher_internal:member_removed`: Broadcast when the *last* connection for a user closes.
+
+* `pusher_internal:subscription_succeeded`: Sent to the user connecting. Contains the full list of current members.
+* `pusher_internal:member_added`: Broadcast to others when a *new* user joins.
+* `pusher_internal:member_removed`: Broadcast when the *last* connection for a user closes.
 
 ### 3. Client Events ("Whispers")
+
 Clients can send messages directly to other clients without hitting the PHP backend.
-*   **Requirement:** Channel must be `private-*` or `presence-*`.
-*   **Event Name:** Must start with `client-`.
+
+* **Requirement:** Channel must be `private-*` or `presence-*`.
+* **Event Name:** Must start with `client-`.
 
 ```javascript
 // JS Client
@@ -230,10 +248,9 @@ Metrics are injected directly into Caddy's registry. They are available at the s
 ## 🛠 Maintenance & Contribution
 
 ### Automation (Makefile)
+
 We use a `Makefile` to enforce the strict compile/test loop.
 
-*   `make build`: Compiles the binary.
-*   `make test`: Runs the Go unit test suite (including Sharding and Circuit Breaker verification).
-*   `make demo`: Runs the example app.
-
----
+* `make build`: Compiles the binary.
+* `make test`: Runs the Go unit test suite (including Sharding and Circuit Breaker verification).
+* `make demo`: Runs the example app.

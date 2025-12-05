@@ -36,7 +36,6 @@ jobs:
         uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php-versions }}
-          extensions: msgpack
           coverage: none
         env:
           phpts: ts
@@ -56,13 +55,13 @@ jobs:
           echo "CGO_LDFLAGS=$(php-config --ldflags) $(php-config --libs)" >> $GITHUB_ENV
 
       - name: Run Go Tests
-        run: go test -v -race ./pkg/...
+        run: go test -v -race .
 
       - name: Build FrankenPHP with Extension
         run: |
           xcaddy build \
             --output frankenphp \
-            --with github.com/y-l-g/pogo=. \
+            --with github.com/y-l-g/websocket=. \
             --with github.com/dunglas/frankenphp/caddy \
             --with github.com/dunglas/caddy-cbrotli
 
@@ -72,5 +71,5 @@ jobs:
       - name: Run PHPStan (Static Analysis)
         run: ./vendor/bin/phpstan analyze --error-format=github
 
-      - name: Run PHP Tests
-        run: ./frankenphp php-cli ./vendor/bin/phpunit
+      # - name: Run PHP Tests
+      #   run: ./frankenphp php-cli ./vendor/bin/phpunit

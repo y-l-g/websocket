@@ -6,6 +6,7 @@ use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Env;
 use Illuminate\Support\Facades\Process;
+
 use function Laravel\Prompts\confirm;
 
 class InstallCommand extends Command
@@ -49,22 +50,22 @@ class InstallCommand extends Command
         }
 
         $stub = <<<'PHP'
-<?php
+            <?php
 
-use Illuminate\Support\Facades\Broadcast;
+            use Illuminate\Support\Facades\Broadcast;
 
-Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
-    return (int) $user->id === (int) $id;
-});
-PHP;
+            Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
+                return (int) $user->id === (int) $id;
+            });
+            PHP;
 
-        (new Filesystem)->put($path, $stub);
+        (new Filesystem())->put($path, $stub);
     }
 
     protected function enableBroadcasting()
     {
         $appBootstrapPath = $this->laravel->bootstrapPath('app.php');
-        $filesystem = new Filesystem;
+        $filesystem = new Filesystem();
 
         if (!$filesystem->exists($appBootstrapPath)) {
             return;
@@ -94,7 +95,7 @@ PHP;
     protected function configureBroadcastingDriver()
     {
         $configPath = $this->laravel->configPath('broadcasting.php');
-        $filesystem = new Filesystem;
+        $filesystem = new Filesystem();
 
         if (!$filesystem->exists($configPath)) {
             return;
@@ -107,12 +108,12 @@ PHP;
         }
 
         $driverConfig = <<<'CONFIG'
-        'pogo' => [
-            'driver' => 'pogo',
-            'app_id' => env('WS_APP_ID', 'pogo-app'),
-        ],
+                    'pogo' => [
+                        'driver' => 'pogo',
+                        'app_id' => env('WS_APP_ID', 'pogo-app'),
+                    ],
 
-CONFIG;
+            CONFIG;
 
         $content = preg_replace(
             "/'connections' => \[\n/",
@@ -141,34 +142,34 @@ CONFIG;
 
     protected function installFrontendScaffolding()
     {
-        $filesystem = new Filesystem;
+        $filesystem = new Filesystem();
         $resourcePath = $this->laravel->resourcePath('js');
 
         if (!$filesystem->isDirectory($resourcePath)) {
-            $filesystem->makeDirectory($resourcePath, 0755, true);
+            $filesystem->makeDirectory($resourcePath, 0o755, true);
         }
 
         $echoScriptPath = $resourcePath . '/echo.js';
 
         if (!$filesystem->exists($echoScriptPath) || $this->option('force')) {
             $jsContent = <<<'JS'
-import Echo from 'laravel-echo';
-import Pusher from 'pusher-js';
+                import Echo from 'laravel-echo';
+                import Pusher from 'pusher-js';
 
-window.Pusher = Pusher;
+                window.Pusher = Pusher;
 
-window.Echo = new Echo({
-    broadcaster: 'pusher',
-    key: 'pogo-key',
-    cluster: 'mt1',
-    wsHost: import.meta.env.VITE_POGO_HOST || window.location.hostname,
-    wsPort: import.meta.env.VITE_POGO_PORT || 80,
-    wssPort: import.meta.env.VITE_POGO_WSS_PORT || 443,
-    forceTLS: false,
-    disableStats: true,
-    enabledTransports: ['ws', 'wss'],
-});
-JS;
+                window.Echo = new Echo({
+                    broadcaster: 'pusher',
+                    key: 'pogo-key',
+                    cluster: 'mt1',
+                    wsHost: import.meta.env.VITE_POGO_HOST || window.location.hostname,
+                    wsPort: import.meta.env.VITE_POGO_PORT || 80,
+                    wssPort: import.meta.env.VITE_POGO_WSS_PORT || 443,
+                    forceTLS: false,
+                    disableStats: true,
+                    enabledTransports: ['ws', 'wss'],
+                });
+                JS;
             $filesystem->put($echoScriptPath, $jsContent);
             $this->components->info("Created resources/js/echo.js");
         }

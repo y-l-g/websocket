@@ -9,10 +9,10 @@ use Pogo\WebSocket\Http\HandshakeController;
 
 class ServiceProvider extends BaseServiceProvider
 {
-    public function boot()
+    public function boot(): void
     {
         Broadcast::extend('pogo', function ($app, $config) {
-            return new Broadcaster($config);
+            return new Broadcaster((array) $config);
         });
 
         Route::middleware('web')

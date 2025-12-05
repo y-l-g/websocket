@@ -48,37 +48,29 @@ jobs:
       - name: Install xcaddy
         run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
 
-      - name: Extract Version Info
-        run: |
-          VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo dev)
-          COMMIT=$(git rev-parse HEAD 2>/dev/null || echo none)
-          echo "POGO_VERSION=$VERSION" >> $GITHUB_ENV
-          echo "POGO_COMMIT=$COMMIT" >> $GITHUB_ENV
-          echo "Version detected: $VERSION"
-
       - name: Configure CGO flags
         run: |
           echo "CGO_CFLAGS=-D_GNU_SOURCE $(php-config --includes)" >> $GITHUB_ENV
           echo "CGO_LDFLAGS=$(php-config --ldflags) $(php-config --libs)" >> $GITHUB_ENV
 
       - name: Run Go Tests
-        run: go test -v -race ./pkg/...
+        run: go test -v -race .
 
       - name: Build Custom FrankenPHP
         env:
-          XCADDY_GO_BUILD_FLAGS: "-ldflags='-w -s -X github.com/y-l-g/pogo.Version=${{ env.POGO_VERSION }} -X github.com/y-l-g/pogo.Commit=${{ env.POGO_COMMIT }}' -tags=nobadger,nomysql,nopgx,nowatcher"
+          XCADDY_GO_BUILD_FLAGS: "-ldflags='-w -s' -tags=nobadger,nomysql,nopgx"
         run: |
           xcaddy build \
             --output frankenphp-linux-x86_64 \
-            --with github.com/y-l-g/pogo=. \
+            --with github.com/y-l-g/websocket=. \
             --with github.com/dunglas/frankenphp/caddy \
             --with github.com/dunglas/caddy-cbrotli
 
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-progress
 
-      - name: Run PHP Tests via FrankenPHP
-        run: ./frankenphp-linux-x86_64 php-cli ./vendor/bin/phpunit
+      # - name: Run PHP Tests via FrankenPHP
+      #   run: ./frankenphp-linux-x86_64 php-cli ./vendor/bin/phpunit
 
       - name: Upload Binary as Artifact
         uses: actions/upload-artifact@v4

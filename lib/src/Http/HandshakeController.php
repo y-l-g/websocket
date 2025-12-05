@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Broadcast;
 
 class HandshakeController extends Controller
 {
-    public function __invoke(Request $request)
+    public function __invoke(Request $request): mixed
     {
         return Broadcast::auth($request);
     }
