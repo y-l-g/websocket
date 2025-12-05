@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>FrankenPHP Debug</title>
+        <script src="https://js.pusher.com/8.0/pusher.min.js"></script>
+    </head>
+    <body style="font-family: monospace; padding: 20px">
+        <h2>🔴 Debugger WebSocket</h2>
+        <div id="status">Status: Connecting...</div>
+        <hr />
+        <div
+            id="log"
+            style="
+                background: #f0f0f0;
+                p: 10px;
+                border: 1px solid #ccc;
+                height: 300px;
+                overflow: auto;
+            "
+        ></div>
+
+        <script>
+            // Logger visuel
+            function log(msg, data) {
+                const div = document.getElementById("log");
+                const entry = document.createElement("div");
+                entry.innerText =
+                    `[${new Date().toLocaleTimeString()}] ${msg} ` +
+                    (data ? JSON.stringify(data) : "");
+                div.prepend(entry);
+                console.log(msg, data);
+            }
+
+            // 1. Configuration Pusher
+            // On force le port 8080 et le chemin ws standard
+            const pusher = new Pusher("frankenphp-demo", {
+                // Cette clé DOIT matcher celle du .env
+                wsHost: window.location.hostname,
+                wsPort: 8080,
+                wssPort: 8080,
+                forceTLS: false,
+                disableStats: true,
+                enabledTransports: ["ws"],
+                // On force le chemin qui marche dans ton Caddyfile
+                wsPath: "/ws",
+                cluster: "mt1",
+            });
+
+            // 2. Debug Global (Espionne tout)
+            pusher.connection.bind("state_change", (states) => {
+                document.getElementById("status").innerText =
+                    "Status: " + states.current;
+                log("State changed:", states.current);
+            });
+
+            pusher.connection.bind("connected", () => {
+                log("✅ CONNECTED! Socket ID: " + pusher.connection.socket_id);
+            });
+
+            pusher.connection.bind("error", (err) => {
+                log("❌ ERROR:", err);
+            });
+
+            // 3. Subscription au canal de test
+            const channel = pusher.subscribe("debug-channel");
+
+            channel.bind("pusher:subscription_succeeded", () => {
+                log('✅ Abonné à "debug-channel"');
+            });
+
+            // 4. Écoute de l'événement de test
+            channel.bind("test-event", (data) => {
+                log("🚀 MESSAGE REÇU !!!", data);
+                alert("CA MARCHE ! " + JSON.stringify(data));
+            });
+        </script>
+    </body>
+</html>

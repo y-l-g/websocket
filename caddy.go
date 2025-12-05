@@ -2,11 +2,8 @@ package websocket
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -49,46 +46,35 @@ func (WebsocketModule) CaddyModule() caddy.ModuleInfo {
 	}
 }
 
-func (m *WebsocketModule) resolveAuthScript() string {
-	if m.AuthScript != "" {
-		return m.AuthScript
-	}
-	if _, err := os.Stat("public/frankenphp-worker.php"); err == nil {
-		m.logger.Info("Auto-discovery: Found Laravel Octane worker", zap.String("path", "public/frankenphp-worker.php"))
-		return "public/frankenphp-worker.php"
-	}
-	if _, err := os.Stat("public/websocket-worker.php"); err == nil {
-		m.logger.Info("Auto-discovery: Found standalone WebSocket worker", zap.String("path", "public/websocket-worker.php"))
-		return "public/websocket-worker.php"
-	}
-	m.logger.Warn("Auto-discovery: No worker found in public/, defaulting to worker.php")
-	return "worker.php"
-}
-
 func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 	m.logger = ctx.Logger(m)
 	m.ctx, m.cancel = context.WithCancel(ctx)
 
 	m.metrics = NewMetrics(ctx.GetMetricsRegistry())
 
-	if m.AuthPath == "" {
-		m.AuthPath = "/broadcasting/auth"
+	// --- CONFIGURATION STRICTE ---
+	// Plus de magie "Auto-discovery". L'utilisateur doit savoir ce qu'il fait.
+
+	if m.AppID == "" {
+		return fmt.Errorf("the 'app_id' directive is required")
 	}
+
+	if m.AuthScript == "" {
+		return fmt.Errorf("the 'auth_script' directive is required (path to your PHP worker script)")
+	}
+
+	if m.AuthPath == "" {
+		return fmt.Errorf("the 'auth_path' directive is required (internal route for authentication)")
+	}
+
 	if m.NumWorkers == 0 {
 		m.NumWorkers = 2
 	}
 
-	if m.AppID == "" {
-		hash := md5.Sum([]byte(m.AuthPath))
-		m.AppID = hex.EncodeToString(hash[:])
-		m.logger.Info("Auto-generated AppID", zap.String("app_id", m.AppID))
-	}
-
-	scriptPath := m.resolveAuthScript()
-
+	// Enregistrement des Workers FrankenPHP
 	m.workerHandle = frankenphpCaddy.RegisterWorkers(
 		"frankenphp-websocket-auth-"+m.AppID,
-		scriptPath,
+		m.AuthScript,
 		m.NumWorkers,
 	)
 
@@ -120,9 +106,9 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 }
 
 func (m *WebsocketModule) Cleanup() error {
-	m.cancel() // Signals Hub to stop
+	m.cancel()
 	if m.hub != nil {
-		m.hub.Wait() // Block until all connections are drained
+		m.hub.Wait()
 		UnregisterHub(m.AppID)
 	}
 	return nil
@@ -152,7 +138,6 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 		Headers: headers,
 	}
 
-	// Direct Dispatch to Shard via Hub method
 	m.hub.Register(client)
 
 	go client.writePump()

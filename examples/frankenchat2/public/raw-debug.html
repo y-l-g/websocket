@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Raw Debugger</title>
+        <style>
+            body {
+                font-family: monospace;
+                padding: 20px;
+                background: #222;
+                color: #0f0;
+            }
+        </style>
+    </head>
+    <body>
+        <h1>Protocol Level Debugger</h1>
+        <div id="log"></div>
+
+        <script>
+            const log = (msg) => {
+                document.getElementById(
+                    "log"
+                ).innerHTML += `<div>${new Date().toLocaleTimeString()} > ${msg}</div>`;
+                console.log(msg);
+            };
+
+            // 1. Connexion directe
+            const ws = new WebSocket(
+                "ws://" + window.location.host + "/app/frankenphp-key"
+            );
+
+            ws.onopen = () => log("✅ TCP Connected");
+
+            ws.onmessage = (event) => {
+                const payload = JSON.parse(event.data);
+                log("⬅️ RECV: " + event.data);
+
+                // 2. Dès qu'on reçoit le Hello du serveur, on tente de s'abonner
+                if (payload.event === "pusher:connection_established") {
+                    log("🚀 Sending Subscribe to 'presence-debug'...");
+
+                    // On construit manuellement le paquet que Echo enverrait normalement
+                    const subscribeMsg = {
+                        event: "pusher:subscribe",
+                        data: {
+                            channel: "presence-debug",
+                        },
+                    };
+
+                    ws.send(JSON.stringify(subscribeMsg));
+                }
+            };
+
+            ws.onclose = (e) => log("❌ Closed: " + e.code);
+            ws.onerror = (e) => log("⚠️ Error");
+        </script>
+    </body>
+</html>

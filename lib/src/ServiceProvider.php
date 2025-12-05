@@ -11,17 +11,14 @@ class ServiceProvider extends BaseServiceProvider
 {
     public function boot()
     {
-        // 1. Register the Driver
-        Broadcast::extend('frankenphp', function ($app, $config) {
+        Broadcast::extend('pogo', function ($app, $config) {
             return new Broadcaster($config);
         });
 
-        // 2. Register the Route
         Route::middleware('web')
             ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
-            ->post('/frankenphp/auth', HandshakeController::class);
+            ->post('/pogo/auth', HandshakeController::class);
 
-        // 3. Register Console Commands
         if ($this->app->runningInConsole()) {
             $this->commands([
                 Console\InstallCommand::class,

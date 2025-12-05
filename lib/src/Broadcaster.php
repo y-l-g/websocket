@@ -14,7 +14,7 @@ class Broadcaster extends BaseBroadcaster
 
     public function __construct(array $config = [])
     {
-        $this->appId = $config['app_id'] ?? 'frankenphp-app';
+        $this->appId = $config['app_id'] ?? 'pogo-app';
     }
 
     public function auth($request)
@@ -50,14 +50,14 @@ class Broadcaster extends BaseBroadcaster
 
     public function broadcast(array $channels, $event, array $payload = [])
     {
-        if (!function_exists('frankenphp_websocket_publish')) {
+        if (!function_exists('pogo_websocket_publish')) {
             return;
         }
 
         $payloadJson = json_encode($payload);
 
         foreach ($channels as $channel) {
-            frankenphp_websocket_publish($this->appId, $channel, $event, $payloadJson);
+            pogo_websocket_publish($this->appId, $channel, $event, $payloadJson);
         }
     }
 }

@@ -3,55 +3,98 @@
 namespace Pogo\WebSocket\Console;
 
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\File;
 
 class InstallCommand extends Command
 {
     protected $signature = 'pogo:ws-install';
-    protected $description = 'Setup the FrankenPHP WebSocket worker script';
+    protected $description = 'Install Pogo WebSocket engine';
 
     public function handle()
     {
-        $octanePath = public_path('frankenphp-worker.php');
-        $targetPath = public_path('websocket-worker.php');
+        $this->components->info('Installing Pogo WebSocket Engine...');
 
-        if (file_exists($octanePath)) {
-            $this->components->info('Laravel Octane detected.');
-            $this->components->warn('Skipping standalone worker installation.');
-            $this->newLine();
-            $this->components->bulletList([
-                "Since you have Octane, you should use its optimized worker.",
-                "Please update your Caddyfile configuration:",
-                "<fg=yellow>auth_script public/frankenphp-worker.php</>"
+        if ($this->confirm('Run Laravel broadcasting scaffolding?', true)) {
+            $this->call('install:broadcasting', [
+                '--pusher' => true,
+                '--no-interaction' => true,
             ]);
-            return;
         }
 
-        if (file_exists($targetPath)) {
-            $this->components->warn('The file [public/websocket-worker.php] already exists.');
-            $this->newLine();
-            $this->components->bulletList([
-                "We preserved your existing file.",
-                "Ensure your Caddyfile configuration uses it:",
-                "<fg=yellow>auth_script public/websocket-worker.php</>"
-            ]);
-            return;
-        }
+        $this->updateBroadcastingConfig();
+        $this->updateEnvironment();
+        $this->updateFrontend();
 
-        $stub = __DIR__ . '/../../stubs/worker.php';
-
-        if (!file_exists($stub)) {
-            $this->error('Package Error: Worker stub not found.');
-            return;
-        }
-
-        copy($stub, $targetPath);
-
-        $this->components->info('Worker installed successfully.');
         $this->newLine();
-        $this->components->bulletList([
-            "File created at: <fg=gray>public/websocket-worker.php</>",
-            "Please update your Caddyfile configuration:",
-            "<fg=yellow>auth_script public/websocket-worker.php</>"
-        ]);
+        $this->components->info('Pogo WebSocket installed successfully. 🐘');
+    }
+
+    protected function updateBroadcastingConfig()
+    {
+        $configPath = config_path('broadcasting.php');
+        if (!File::exists($configPath))
+            return;
+
+        $content = File::get($configPath);
+
+        if (!str_contains($content, "'frankenphp' => [")) {
+            $driverConfig = <<<'CONFIG'
+        'frankenphp' => [
+            'driver' => 'frankenphp',
+            'app_id' => env('WS_APP_ID', 'frankenphp-app'),
+        ],
+
+CONFIG;
+            $content = preg_replace(
+                "/'connections' => \[\n/",
+                "'connections' => [\n" . $driverConfig,
+                $content
+            );
+            File::put($configPath, $content);
+        }
+    }
+
+    protected function updateEnvironment()
+    {
+        $envPath = base_path('.env');
+        if (!File::exists($envPath))
+            return;
+
+        $content = File::get($envPath);
+
+        $content = preg_replace(
+            '/^BROADCAST_(DRIVER|CONNECTION)=.*/m',
+            'BROADCAST_CONNECTION=pogo',
+            $content
+        );
+
+        $vars = [
+            'WS_APP_ID' => 'pogo-app',
+            'VITE_POGO_WS_PORT' => '80',
+            'VITE_POGO_WSS_PORT' => '443',
+        ];
+
+        foreach ($vars as $key => $val) {
+            if (!str_contains($content, $key . '=')) {
+                $content .= PHP_EOL . "$key=$val";
+            }
+        }
+
+        $content = preg_replace('/^PUSHER_.*\n/m', '', $content);
+        $content = preg_replace('/^VITE_PUSHER_.*\n/m', '', $content);
+
+        File::put($envPath, trim($content) . PHP_EOL);
+        $this->components->info('.env updated and cleaned.');
+    }
+
+    protected function updateFrontend()
+    {
+        $echoPath = resource_path('js/echo.js');
+        $stubContent = file_get_contents(__DIR__ . '/../../stubs/echo.js');
+
+        if (File::exists($echoPath)) {
+            File::put($echoPath, $stubContent);
+            $this->components->info('resources/js/echo.js updated.');
+        }
     }
 }
