@@ -10,7 +10,7 @@ build:
 	CGO_LDFLAGS="$(shell php-config --ldflags) $(shell php-config --libs)" \
 	XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher" CGO_ENABLED=1 xcaddy build \
 		--output frankenphp \
-		--with github.com/pogo/websocket=. \
+		--with github.com/y-l-g/websocket=. \
 		--with github.com/dunglas/frankenphp/caddy \
 		--with github.com/dunglas/caddy-cbrotli
 

@@ -1,43 +1,43 @@
-# FrankenPHP WebSocket Engine
+# Pogo WebSocket Engine
 
 **The Native, High-Performance Real-Time Solution for PHP.**
 
-The **FrankenPHP WebSocket Engine** is a Caddy module written in Go that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary.
+The **Pogo WebSocket Engine** is a Caddy module written in Go that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary.
 
-It eliminates the need for external Node.js sidecars (Laravel Echo Server, Soketi) or separate PHP daemons (Laravel Reverb, Swoole). By leveraging Go’s concurrency for connection management and FrankenPHP’s Worker API for authentication, it delivers near-zero latency and massive scalability while keeping your business logic in PHP.
+It eliminates the need for external Node.js sidecars or separate PHP daemons. By leveraging Go’s concurrency for connection management and FrankenPHP’s Worker API for authentication, it delivers near-zero latency while keeping your business logic in PHP.
 
 ---
 
-## Technical Architecture
+## 🏗 Technical Architecture
 
 ### Tech Stack
 *   **Core Engine:** Go
-*   **Web Server:** Caddy v2 (via FrankenPHP)
-*   **Language Bridge:** CGO (Shared Memory)
-*   **Protocol:** Pusher Protocol v7 (WebSocket)
-*   **Scaling Layer:** Redis Pub/Sub (Optional, for clustering)
+*   **Protocol:** Pusher Protocol v7
+*   **Scaling Layer:** Redis Pub/Sub
 *   **Observability:** Prometheus
 
-1.  **Hexagonal Architecture:** The Go `Hub` manages the WebSocket lifecycle (TCP, Pings, Fan-out). It knows nothing about your application domain. It communicates with PHP only via strictly defined ports:
-    *   **Inbound:** A CGO-exported function `frankenphp_websocket_publish` allows PHP to broadcast messages instantly.
-    *   **Outbound:** The `WorkerAuthProvider` uses FrankenPHP's `SendRequest` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
+### 1. Hexagonal Architecture & Isolation
+The Go `Hub` manages the WebSocket lifecycle (TCP, Pings, Fan-out). It knows nothing about your application domain. It communicates with PHP only via strictly defined ports:
+*   **Inbound (PHP -> Go):** A CGO-exported function `pogo_websocket_publish` allows PHP to broadcast messages instantly via shared memory.
+*   **Outbound (Go -> PHP):** The `WorkerAuthProvider` uses FrankenPHP's `SendRequest` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
 
-2.  **Sharding & Concurrency:**
-    *   To prevent lock contention on the central Hub during high loads, the system creates **32 Hub Shards**.
-    *   Incoming connections and messages are routed to shards based on `fnv32(channel_name) % 32`.
-    *   This allows the system to handle tens of thousands of concurrent connections on a single node without blocking.
+### 2. Sharding & Concurrency
+To prevent lock contention on the central Hub during high loads, the system utilizes a **32-Shard Architecture**:
+*   **Parallel Handshakes:** Client registration is dispatched immediately to shards based on `fnv32(client_id) % 32`.
+*   **Lock-Free Broadcasting:** Messages are routed to shards based on channel names, allowing independent broadcasting routines to run in parallel.
+*   **Graceful Shutdown:** The engine utilizes `sync.WaitGroup` barriers. On SIGTERM, it stops accepting new connections, sends a `1001 Going Away` frame to all clients, and waits for sockets to drain before exiting.
 
-3.  **Resilience (Circuit Breaker):**
-    *   Authentication requests are protected by a **Circuit Breaker**. If the PHP backend (e.g., MySQL) stalls, the Go layer "fails fast" to prevent a thundering herd of goroutines from exhausting system resources.
-    *   **Auth Caching:** Successful authentications are cached in memory (TTL 30s) to absorb reconnection storms.
+### 3. Resilience & Security
+*   **Circuit Breaker:** Authentication requests are protected. If the PHP backend stalls, the Go layer "fails fast" to prevent a thundering herd of goroutines from exhausting system resources.
+*   **Memory Pooling:** To offset the cost of real-time auth, the `WorkerAuthProvider` utilizes `sync.Pool` for HTTP Recorders, drastically reducing Garbage Collection pressure during connection storms.
 
-4.  **Distributed Scaling:**
-    *   **Memory Broker (Default):** For single-server setups, messages flow through Go channels.
-    *   **Redis Broker:** For Kubernetes/Cluster setups, the engine switches to a Redis Pub/Sub adapter, allowing users on Node A to communicate with users on Node B transparently.
+### 4. Distributed Scaling
+*   **Memory Broker (Default):** For single-server setups, messages flow through Go channels.
+*   **Redis Broker:** For Cluster setups, the engine switches to a Redis Pub/Sub adapter. It features an **Exponential Backoff Reconnection Loop**, ensuring the process survives Redis outages without crashing.
 
+---
 
-## Installation
-
+## 📦 Installation
 
 ### Step 1: Build the Binary
 You must compile FrankenPHP with this custom module included.
@@ -47,10 +47,10 @@ CGO_CFLAGS="-D_GNU_SOURCE $(php-config --includes)" \
 CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
 XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher" 
 CGO_ENABLED=1 
-xcaddy build     
-    --output frankenphp     
-    --with github.com/pogo/websocket=.
-    --with github.com/dunglas/frankenphp/caddy     
+xcaddy build \
+    --output frankenphp \
+    --with github.com/y-l-g/websocket=. \
+    --with github.com/dunglas/frankenphp/caddy \
     --with github.com/dunglas/caddy-cbrotli
 ```
 
@@ -61,40 +61,50 @@ In your Laravel application:
 composer require pogo/websocket
 ```
 
-Run the install command to publish the worker script:
+Run the automated installer. This command will:
+1.  Install frontend dependencies (`laravel-echo`, `pusher-js`).
+2.  Configure `config/broadcasting.php`.
+3.  Update your `.env`.
 
 ```bash
 php artisan pogo:ws-install
 ```
-*This creates `websocket-worker.php` in your project root.*
 
 ---
 
-## 5. Configuration
+## ⚙️ Configuration
 
 ### Caddyfile Configuration
-The module is configured via the `frankenphp_websocket` directive within your `Caddyfile`.
+The module is configured via the `pogo_websocket` directive within your `Caddyfile`. Use a dedicated route to intercept WebSocket traffic.
 
 ```caddy
 {
-    # Enable Debug logs to see Auth Cache hits
-    log {
-        level DEBUG
-    }
-    
     frankenphp
-    order frankenphp_websocket before frankenphp
+    order pogo_websocket before pogo
 }
 
-:8000 {
-    route /ws {
-        frankenphp_websocket {
-            auth_path       /frankenphp/auth
-            auth_script     frankenphp-worker.php
+localhost {
+    # Match the Pusher Protocol path
+    route /app/* {
+        pogo_websocket {
+            # REQUIRED: Unique ID for this app
+            app_id          pogo-app
+            
+            # REQUIRED: Internal route for authentication (Go -> PHP)
+            auth_path       /pogo/auth
+            
+            # REQUIRED: Path to the worker script 
+            auth_script     public/frankenphp-worker.php
+            
+            # Tuning
             num_workers     2
-            webhook_url     http://localhost:8000/api/webhook
-            webhook_secret  my-secret-key
-            redis_host      localhost:6379
+            
+            # Clustering (Optional)
+            # redis_host      localhost:6379
+            
+            # Webhooks (Optional)
+            # webhook_url     http://localhost/webhook
+            # webhook_secret  my-secret-key
         }
     }
     
@@ -102,34 +112,23 @@ The module is configured via the `frankenphp_websocket` directive within your `C
 }
 ```
 
-| Directive | Type | Default | Description |
-| :--- | :--- | :--- | :--- |
-| `auth_path` | String | `/broadcasting/auth` | The internal route used to trigger the Laravel Auth logic. |
-| `auth_script` | Path | `worker.php` | Path to the PHP script that handles auth requests. |
-| `num_workers` | Int | `2` | Number of dedicated PHP threads for authentication. |
-| `redis_host` | String | `""` | Redis address (e.g., `localhost:6379`). If empty, uses Memory. |
-| `webhook_url` | URL | `""` | URL to receive `channel_occupied` / `vacated` events. |
-| `webhook_secret` | String | `""` | Secret key for HMAC-SHA256 signature on webhooks. |
-
 ### Laravel Configuration (`.env`)
 
+The installer sets these automatically, but ensure they match your `Caddyfile`.
+
 ```ini
-BROADCAST_CONNECTION=frankenphp
-```
+BROADCAST_CONNECTION=pogo
+WS_APP_ID=pogo-app
 
-Ensure `config/broadcasting.php` includes:
-
-```php
-'connections' => [
-    'frankenphp' => [
-        'driver' => 'frankenphp',
-    ],
-],
+# Frontend Configuration
+VITE_POGO_HOST=localhost
+VITE_POGO_PORT=8000
+VITE_POGO_WSS_PORT=443
 ```
 
 ---
 
-## 6. Usage Guide (Development)
+## 💻 Usage Guide
 
 ### Starting the Server
 Run the compiled binary. It will start Caddy, the PHP Application, and the WebSocket Engine simultaneously.
@@ -139,7 +138,7 @@ Run the compiled binary. It will start Caddy, the PHP Application, and the WebSo
 ```
 
 ### Client-Side (JavaScript)
-The server is fully compatible with `pusher-js` and `laravel-echo`.
+The server is fully compatible with `pusher-js` and `laravel-echo`. The installer provides a configured `echo.js`.
 
 ```javascript
 import Echo from 'laravel-echo';
@@ -149,27 +148,24 @@ window.Pusher = Pusher;
 
 window.Echo = new Echo({
     broadcaster: 'pusher',
-    key: 'any-key', // Key is ignored by the engine but required by the client
-    wsHost: window.location.hostname,
-    wsPort: 8000,
-    wssPort: 443,
+    // Dummy values required by pusher-js (ignored by server)
+    key: 'key',
+    cluster: 'cluster',
+    
+    // Dynamic Configuration via Vite
+    wsHost: import.meta.env.VITE_POGO_HOST || window.location.hostname,
+    wsPort: import.meta.env.VITE_POGO_PORT || 80,
+    wssPort: import.meta.env.VITE_POGO_WSS_PORT || 443,
+    
     forceTLS: false,
     disableStats: true,
     enabledTransports: ['ws', 'wss'],
-    // Ensure cookies are sent for Auth
-    authEndpoint: '/frankenphp/auth', 
 });
-
-// Subscribe
-window.Echo.private(`room.${roomId}`)
-    .listen('NewMessage', (e) => {
-        console.log(e.message);
-    });
 ```
 
 ---
 
-## 7. API Documentation / Core Functionality
+## 📡 API & Core Functionality
 
 ### 1. Publishing Events (PHP)
 Use the standard Laravel Event system. The driver automatically routes this to the native CGO function.
@@ -187,7 +183,7 @@ event(new MessageSent($message));
 ```
 
 ### 2. Presence Channels
-The engine handles complex Presence logic (member tracking).
+The engine handles complex Presence logic (member tracking) entirely in Go.
 
 **PHP (`routes/channels.php`):**
 ```php
@@ -214,62 +210,30 @@ channel.whisper('typing', {
 });
 ```
 
-### 4. Metrics (Prometheus)
-Metrics are exposed at `http://localhost:2019/metrics` (Caddy Admin Interface).
+---
+
+## 📊 Observability (Metrics)
+
+Metrics are injected directly into Caddy's registry. They are available at the standard Caddy admin endpoint: `http://localhost:2019/metrics`.
 
 | Metric Name | Type | Description |
 | :--- | :--- | :--- |
-| `frankenphp_ws_connections_active` | Gauge | Active TCP connections. |
-| `frankenphp_ws_messages_total` | Counter | Total messages broadcasted. |
-| `frankenphp_ws_auth_seconds` | Histogram | Latency of the PHP Auth Worker. |
-| `frankenphp_ws_circuit_breaker_open_total` | Counter | Number of requests rejected due to backend failure. |
+| `pogo_websocket_connections_active` | Gauge | Current active TCP connections. |
+| `pogo_websocket_messages_total` | Counter | Total messages broadcasted. |
+| `pogo_websocket_subscriptions_total` | Counter | Total active subscriptions. |
+| `pogo_websocket_auth_duration_seconds` | Histogram | Latency of the PHP Auth Worker. |
+| `pogo_websocket_circuit_breaker_open_total` | Counter | Number of requests rejected due to PHP/DB failure. |
+| `pogo_websocket_auth_failures_total` | Counter | 500/Timeouts from PHP. |
 
 ---
 
-## 8. Deployment
+## 🛠 Maintenance & Contribution
 
-### Docker (Multi-Stage Build)
+### Automation (Makefile)
+We use a `Makefile` to enforce the strict compile/test loop.
 
-```dockerfile
-# Stage 1: Builder
-FROM dunglas/frankenphp:latest-builder AS builder
-
-# Build with extension
-COPY src/go /go/src/app/
-RUN xcaddy build \
-    --output /usr/local/bin/frankenphp \
-    --with github.com/dunglas/frankenphp \
-    --with github.com/your-org/frankenphp-websocket=/go/src/app
-
-# Stage 2: Runner
-FROM dunglas/frankenphp:latest-php8.3
-
-# Copy Binary
-COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
-
-# Copy App & Worker
-COPY . /app
-COPY frankenphp-worker.php /app/frankenphp-worker.php
-
-CMD ["frankenphp", "run", "--config", "/app/Caddyfile"]
-```
-
-### Kubernetes
-For HA (High Availability), deploy multiple replicas of the Docker container and configure `redis_host` in the Caddyfile to point to a shared Redis instance. The engine will automatically sync broadcasts across pods.
+*   `make build`: Compiles the binary.
+*   `make test`: Runs the Go unit test suite (including Sharding and Circuit Breaker verification).
+*   `make demo`: Runs the example app.
 
 ---
-
-## 9. Maintenance & Contribution
-
-### Coding Standards
-*   **Go:** Follow `gofmt` and standard Go idioms. Run `go mod tidy` before committing.
-*   **PHP:** Follow PSR-12 coding standards.
-
-### Safety Guidelines
-1.  **CGO:** Never pass Go pointers to C/PHP. Always copy data strings immediately (`frankenphp.GoString`).
-2.  **Locks:** Do not use the `GlobalHub` lock for long operations. Use the sharded locks in `SubscriptionManager`.
-3.  **Metrics:** Always initialize new metrics to 0 in `RegisterMetrics`.
-
-### Testing
-*   **Unit Tests:** `go test ./...`
-*   **Integration:** Use the `demo/` application. Open `public/presence_test.html` in multiple browser tabs to verify concurrency and presence logic.

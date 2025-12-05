@@ -24,7 +24,7 @@ zend_module_entry websocket_module_entry = {STANDARD_MODULE_HEADER,
                                          NULL,                      /* MINFO */
                                          "1.0.0",                   /* Version */
                                          STANDARD_MODULE_PROPERTIES};
-PHP_FUNCTION(frankenphp_websocket_publish)
+PHP_FUNCTION(pogo_websocket_publish)
 {
     zend_string *appId = NULL;
     zend_string *channel = NULL;
@@ -36,7 +36,7 @@ PHP_FUNCTION(frankenphp_websocket_publish)
         Z_PARAM_STR(event)
         Z_PARAM_STR(data)
     ZEND_PARSE_PARAMETERS_END();
-    int result = frankenphp_websocket_publish(appId, channel, event, data);
+    int result = pogo_websocket_publish(appId, channel, event, data);
     RETURN_BOOL(result);
 }
 

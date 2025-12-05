@@ -13,8 +13,8 @@ func init() {
 	frankenphp.RegisterExtension(unsafe.Pointer(&C.websocket_module_entry))
 }
 
-//export frankenphp_websocket_publish
-func frankenphp_websocket_publish(appId *C.zend_string, channel *C.zend_string, event *C.zend_string, data *C.zend_string) bool {
+//export pogo_websocket_publish
+func pogo_websocket_publish(appId *C.zend_string, channel *C.zend_string, event *C.zend_string, data *C.zend_string) bool {
 	// Memory Safety: Convert C strings to Go strings immediately (Copy)
 	goAppID := frankenphp.GoString(unsafe.Pointer(appId))
 

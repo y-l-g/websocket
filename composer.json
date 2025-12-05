@@ -1,6 +1,6 @@
 {
     "name": "pogo/websocket",
-    "description": "FrankenPHP WebSocket Driver",
+    "description": "Pogo WebSocket Driver",
     "autoload": {
         "psr-4": {
             "Pogo\\WebSocket\\": "lib/src/"
