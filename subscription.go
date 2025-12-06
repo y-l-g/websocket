@@ -2,7 +2,6 @@ package websocket
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 
 	"github.com/y-l-g/websocket/internal/protocol"
@@ -41,20 +40,18 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	if len(clients) == 0 {
 		return
 	}
+
 	payload, err := json.Marshal(map[string]interface{}{
 		"event":   msg.Event,
 		"channel": msg.Channel,
-		"data":    msg.Data,
+		"data":    string(msg.Data),
 	})
 	if err != nil {
 		sm.logger.Error("JSON marshal error", zap.Error(err))
 		return
 	}
 	for client := range clients {
-		select {
-		case client.send <- payload:
-		default:
-		}
+		client.Send(payload)
 	}
 }
 
@@ -77,7 +74,7 @@ func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userDat
 		sm.webhook.Notify("channel_occupied", channel)
 	}
 
-	if strings.HasPrefix(channel, "presence-") {
+	if strings.HasPrefix(channel, protocol.ChannelPrefixPresence) {
 		sm.handlePresenceSubscribe(client, channel, userData)
 	} else {
 		msg, _ := json.Marshal(map[string]interface{}{
@@ -85,21 +82,22 @@ func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userDat
 			"channel": channel,
 			"data":    "{}",
 		})
-		client.send <- msg
+		client.Send(msg)
 	}
 }
 
 func (sm *SubscriptionManager) BroadcastToOthers(sender *Client, channel, event string, data json.RawMessage) {
-	if !strings.HasPrefix(channel, "private-") && !strings.HasPrefix(channel, "presence-") {
+	if !strings.HasPrefix(channel, protocol.ChannelPrefixPrivate) && !strings.HasPrefix(channel, protocol.ChannelPrefixPresence) {
 		return
 	}
 	if chans, ok := sm.clients[sender]; !ok || !chans[channel] {
 		return
 	}
+
 	payload, err := json.Marshal(map[string]interface{}{
 		"event":   event,
 		"channel": channel,
-		"data":    data,
+		"data":    string(data),
 	})
 	if err != nil {
 		return
@@ -109,55 +107,54 @@ func (sm *SubscriptionManager) BroadcastToOthers(sender *Client, channel, event 
 		if client == sender {
 			continue
 		}
-		select {
-		case client.send <- payload:
-		default:
-		}
+		client.Send(payload)
 	}
 }
 
+// Strict structures for presence auth response parsing
+type PresenceAuthResponse struct {
+	Auth        string `json:"auth"`
+	ChannelData string `json:"channel_data"`
+}
+
+type PresenceChannelData struct {
+	UserID   json.RawMessage `json:"user_id"`
+	UserInfo json.RawMessage `json:"user_info"`
+}
+
 func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel string, userData json.RawMessage) {
-	var rawMap map[string]interface{}
-	if err := json.Unmarshal(userData, &rawMap); err != nil {
+	var authResp PresenceAuthResponse
+	if err := json.Unmarshal(userData, &authResp); err != nil {
+		// Fallback for loose PHP implementations or error responses
+		sm.logger.Warn("Presence: invalid auth response", zap.String("id", client.ID))
 		return
 	}
 
-	if channelDataStr, ok := rawMap["channel_data"].(string); ok {
-		var channelData map[string]interface{}
-		if err := json.Unmarshal([]byte(channelDataStr), &channelData); err == nil {
-			rawMap = channelData
-		}
-	}
-
-	var userID string
-	var userInfo interface{}
-
-	if v, ok := rawMap["user_id"]; ok {
-		userID = fmt.Sprintf("%v", v)
-	}
-	if v, ok := rawMap["user_info"]; ok {
-		userInfo = v
-	} else if v, ok := rawMap["info"]; ok {
-		userInfo = v
-	} else {
-		userInfo = rawMap
-	}
-
-	if userID == "" {
-		if v, ok := rawMap["user_info"].(map[string]interface{}); ok {
-			if uid, exists := v["id"]; exists {
-				userID = fmt.Sprintf("%v", uid)
-				userInfo = v
-			}
-		}
-	}
-
-	if userID == "" || userID == "<nil>" {
+	if authResp.ChannelData == "" {
+		sm.logger.Warn("Presence: missing channel_data", zap.String("id", client.ID))
 		return
 	}
 
-	userInfoBytes, _ := json.Marshal(userInfo)
-	member := Member{UserID: userID, UserInfo: userInfoBytes}
+	var chanData PresenceChannelData
+	if err := json.Unmarshal([]byte(authResp.ChannelData), &chanData); err != nil {
+		sm.logger.Warn("Presence: invalid channel_data JSON", zap.String("id", client.ID))
+		return
+	}
+
+	// Handle ID. It might be integer or string in the raw JSON.
+	userID := strings.Trim(string(chanData.UserID), "\"")
+	if userID == "" || userID == "null" {
+		sm.logger.Warn("Presence: missing user_id", zap.String("id", client.ID))
+		return
+	}
+
+	// Handle Info. Can be anything.
+	userInfo := chanData.UserInfo
+	if len(userInfo) == 0 {
+		userInfo = json.RawMessage("null")
+	}
+
+	member := Member{UserID: userID, UserInfo: userInfo}
 
 	if _, ok := sm.presence[channel]; !ok {
 		sm.presence[channel] = make(map[string]Member)
@@ -173,7 +170,7 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 	for uid, m := range sm.presence[channel] {
 		ids = append(ids, uid)
 		var info interface{}
-		json.Unmarshal(m.UserInfo, &info)
+		_ = json.Unmarshal(m.UserInfo, &info)
 		hash[uid] = info
 	}
 
@@ -189,12 +186,12 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 		"channel": channel,
 		"data":    string(dataJson),
 	})
-	client.send <- successMsg
+	client.Send(successMsg)
 
 	if !alreadyPresent {
 		addedData := map[string]interface{}{
 			"user_id":   userID,
-			"user_info": userInfo,
+			"user_info": member.UserInfo,
 		}
 		addedDataBytes, _ := json.Marshal(addedData)
 		addedMsg, _ := json.Marshal(map[string]interface{}{
@@ -204,10 +201,7 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 		})
 		for otherClient := range sm.channels[channel] {
 			if otherClient != client {
-				select {
-				case otherClient.send <- addedMsg:
-				default:
-				}
+				otherClient.Send(addedMsg)
 			}
 		}
 	}
@@ -226,7 +220,7 @@ func (sm *SubscriptionManager) Unsubscribe(client *Client, channel string) {
 	if chans, ok := sm.clients[client]; ok {
 		delete(chans, channel)
 	}
-	if strings.HasPrefix(channel, "presence-") {
+	if strings.HasPrefix(channel, protocol.ChannelPrefixPresence) {
 		sm.handlePresenceUnsubscribe(client, channel)
 	}
 }
@@ -255,10 +249,7 @@ func (sm *SubscriptionManager) handlePresenceUnsubscribe(client *Client, channel
 				})
 				if clients, ok := sm.channels[channel]; ok {
 					for sub := range clients {
-						select {
-						case sub.send <- removedMsg:
-						default:
-						}
+						sub.Send(removedMsg)
 					}
 				}
 			}

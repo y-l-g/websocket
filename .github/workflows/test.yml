@@ -55,7 +55,9 @@ jobs:
           echo "CGO_LDFLAGS=$(php-config --ldflags) $(php-config --libs)" >> $GITHUB_ENV
 
       - name: Run Go Tests
-        run: go test -v -race .
+        run: |
+          go test -v -race .
+          go test -v -race ./tests/integration/...
 
       - name: Build FrankenPHP with Extension
         run: |

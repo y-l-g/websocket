@@ -58,11 +58,9 @@ func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, 
 			}
 
 			pubsub := r.client.Subscribe(ctx, RedisChannelName)
-			// Wait for confirmation
 			if _, err := pubsub.Receive(ctx); err != nil {
-				pubsub.Close()
+				_ = pubsub.Close()
 
-				// Exponential Backoff: 1s, 2s, 4s, 8s, 16s, capped at 30s
 				sleepDuration := time.Duration(math.Pow(2, float64(attempt))) * time.Second
 				if sleepDuration > 30*time.Second {
 					sleepDuration = 30 * time.Second
@@ -89,7 +87,6 @@ func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, 
 				select {
 				case redisMsg, ok := <-ch:
 					if !ok {
-						// Channel closed (connection lost)
 						break readLoop
 					}
 
@@ -102,16 +99,16 @@ func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, 
 					select {
 					case out <- msg:
 					case <-ctx.Done():
-						pubsub.Close()
+						_ = pubsub.Close()
 						return
 					}
 				case <-ctx.Done():
-					pubsub.Close()
+					_ = pubsub.Close()
 					return
 				}
 			}
 
-			pubsub.Close()
+			_ = pubsub.Close()
 			r.logger.Warn("Redis: connection lost, reconnecting")
 		}
 	}()

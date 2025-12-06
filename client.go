@@ -1,9 +1,11 @@
 package websocket
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -11,11 +13,12 @@ import (
 	"go.uber.org/zap"
 )
 
+// Defaults used if config is missing
 const (
-	writeWait      = 10 * time.Second
-	pongWait       = 60 * time.Second
-	pingPeriod     = (pongWait * 9) / 10
-	maxMessageSize = 512
+	DefaultWriteWait  = 10 * time.Second
+	DefaultPongWait   = 60 * time.Second
+	DefaultPingPeriod = (DefaultPongWait * 9) / 10
+	maxMessageSize    = 512
 )
 
 type Client struct {
@@ -24,6 +27,32 @@ type Client struct {
 	conn    *websocket.Conn
 	send    chan []byte
 	Headers http.Header
+	ctx     context.Context
+	cancel  context.CancelFunc
+
+	shardMask uint32
+
+	// Configurable Timeouts
+	PingPeriod time.Duration
+	WriteWait  time.Duration
+	PongWait   time.Duration
+}
+
+// AddShard marks that the client has a subscription on the given shard ID.
+func (c *Client) AddShard(id int) {
+	if id < 0 || id >= 32 {
+		return
+	}
+	atomic.OrUint32(&c.shardMask, uint32(1)<<id)
+}
+
+// HasShard checks if the client might have resources on the given shard ID.
+func (c *Client) HasShard(id int) bool {
+	if id < 0 || id >= 32 {
+		return false
+	}
+	mask := atomic.LoadUint32(&c.shardMask)
+	return (mask & (uint32(1) << id)) != 0
 }
 
 type ClientMessage struct {
@@ -36,15 +65,31 @@ type SubscribeData struct {
 	Channel string `json:"channel"`
 }
 
+func (c *Client) Send(msg []byte) {
+	select {
+	case c.send <- msg:
+	default:
+		if c.hub != nil && c.hub.metrics != nil {
+			c.hub.metrics.DroppedMessages.Inc()
+		}
+	}
+}
+
 func (c *Client) readPump() {
 	defer func() {
 		c.hub.Unregister(c)
-		c.conn.Close()
+		_ = c.conn.Close() // Explicitly ignore close error on defer
+		c.cancel()
 	}()
 
 	c.conn.SetReadLimit(protocol.MaxDataSize + 1024)
-	c.conn.SetReadDeadline(time.Now().Add(pongWait))
-	c.conn.SetPongHandler(func(string) error { c.conn.SetReadDeadline(time.Now().Add(pongWait)); return nil })
+
+	// Explicitly ignore deadline errors in setup/pong handler
+	_ = c.conn.SetReadDeadline(time.Now().Add(c.PongWait))
+	c.conn.SetPongHandler(func(string) error {
+		_ = c.conn.SetReadDeadline(time.Now().Add(c.PongWait))
+		return nil
+	})
 
 	for {
 		_, message, err := c.conn.ReadMessage()
@@ -69,8 +114,7 @@ func (c *Client) handleMessage(message []byte) {
 		return
 	}
 
-	// Whispers (Client Events)
-	if strings.HasPrefix(msg.Event, "client-") {
+	if strings.HasPrefix(msg.Event, protocol.ChannelPrefixClient) {
 		if msg.Channel == "" || len(msg.Channel) > protocol.MaxChannelLength {
 			return
 		}
@@ -89,9 +133,7 @@ func (c *Client) handleMessage(message []byte) {
 
 	switch msg.Event {
 	case protocol.EventPing:
-		// Respond with Pong
-		// We manually construct the JSON to avoid overhead
-		c.send <- []byte(`{"event":"` + protocol.EventPong + `"}`)
+		c.Send([]byte(`{"event":"` + protocol.EventPong + `"}`))
 
 	case protocol.EventSubscribe:
 		var subData SubscribeData
@@ -105,7 +147,7 @@ func (c *Client) handleMessage(message []byte) {
 
 		var authData json.RawMessage
 
-		if strings.HasPrefix(subData.Channel, "private-") || strings.HasPrefix(subData.Channel, "presence-") {
+		if strings.HasPrefix(subData.Channel, protocol.ChannelPrefixPrivate) || strings.HasPrefix(subData.Channel, protocol.ChannelPrefixPresence) {
 			result := c.hub.Authorize(c, subData.Channel)
 			if !result.Allowed {
 				errMsg, _ := json.Marshal(map[string]interface{}{
@@ -115,7 +157,7 @@ func (c *Client) handleMessage(message []byte) {
 						"message": "Subscription to " + subData.Channel + " rejected",
 					},
 				})
-				c.send <- errMsg
+				c.Send(errMsg)
 				return
 			}
 			authData = result.UserData
@@ -137,18 +179,23 @@ func (c *Client) handleMessage(message []byte) {
 }
 
 func (c *Client) writePump() {
-	ticker := time.NewTicker(pingPeriod)
+	ticker := time.NewTicker(c.PingPeriod)
 	defer func() {
 		ticker.Stop()
-		c.conn.Close()
+		_ = c.conn.Close() // Explicitly ignore error
 	}()
 
 	for {
 		select {
+		case <-c.ctx.Done():
+			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
+			_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			return
+
 		case message, ok := <-c.send:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
-				c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
 				return
 			}
 
@@ -156,13 +203,16 @@ func (c *Client) writePump() {
 			if err != nil {
 				return
 			}
-			w.Write(message)
+			// Check write error
+			if _, err := w.Write(message); err != nil {
+				return
+			}
 			if err := w.Close(); err != nil {
 				return
 			}
 
 		case <-ticker.C:
-			c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
 				return
 			}

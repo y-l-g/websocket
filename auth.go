@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
-	"net/http/httptest"
 	"sync"
 	"time"
 
@@ -17,16 +15,42 @@ import (
 const (
 	CBThreshold    = 5
 	CBResetTimeout = 10 * time.Second
+
+	StateClosed = iota
+	StateOpen
+	StateHalfOpen
 )
 
-var recorderPool = sync.Pool{
+type responseCapturer struct {
+	status   int
+	header   http.Header
+	body     bytes.Buffer
+	overflow bool
+	maxSize  int
+}
+
+func (r *responseCapturer) Header() http.Header { return r.header }
+func (r *responseCapturer) Write(b []byte) (int, error) {
+	if r.overflow {
+		return len(b), nil
+	}
+	if r.body.Len()+len(b) > r.maxSize {
+		r.overflow = true
+		return len(b), nil
+	}
+	return r.body.Write(b)
+}
+func (r *responseCapturer) WriteHeader(statusCode int) { r.status = statusCode }
+
+var capturerPool = sync.Pool{
 	New: func() interface{} {
-		return httptest.NewRecorder()
+		return &responseCapturer{header: make(http.Header), status: 200}
 	},
 }
 
 type CircuitBreaker struct {
 	mu           sync.RWMutex
+	state        int
 	failures     int
 	lastFailure  time.Time
 	threshold    int
@@ -35,6 +59,7 @@ type CircuitBreaker struct {
 
 func NewCircuitBreaker() *CircuitBreaker {
 	return &CircuitBreaker{
+		state:        StateClosed,
 		threshold:    CBThreshold,
 		resetTimeout: CBResetTimeout,
 	}
@@ -42,24 +67,55 @@ func NewCircuitBreaker() *CircuitBreaker {
 
 func (cb *CircuitBreaker) Allow() bool {
 	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-	if cb.failures >= cb.threshold {
-		if time.Since(cb.lastFailure) > cb.resetTimeout {
-			return true
+	state := cb.state
+	lastFailure := cb.lastFailure
+	cb.mu.RUnlock()
+
+	if state == StateClosed {
+		return true
+	}
+
+	if state == StateOpen {
+		if time.Since(lastFailure) > cb.resetTimeout {
+			cb.mu.Lock()
+			defer cb.mu.Unlock()
+			if cb.state == StateOpen && time.Since(cb.lastFailure) > cb.resetTimeout {
+				cb.state = StateHalfOpen
+				return true
+			}
+			if cb.state == StateHalfOpen {
+				return false
+			}
 		}
 		return false
 	}
-	return true
+	return false
 }
 
 func (cb *CircuitBreaker) Report(success bool) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+
 	if success {
-		cb.failures = 0
+		if cb.state == StateHalfOpen {
+			cb.state = StateClosed
+			cb.failures = 0
+		} else if cb.state == StateClosed {
+			cb.failures = 0
+		}
 	} else {
-		cb.failures++
-		cb.lastFailure = time.Now()
+		if cb.state == StateHalfOpen {
+			cb.state = StateOpen
+			cb.lastFailure = time.Now()
+		} else if cb.state == StateClosed {
+			cb.failures++
+			if cb.failures >= cb.threshold {
+				cb.state = StateOpen
+				cb.lastFailure = time.Now()
+			}
+		} else if cb.state == StateOpen {
+			cb.lastFailure = time.Now()
+		}
 	}
 }
 
@@ -73,39 +129,34 @@ type AuthProvider interface {
 }
 
 type WorkerAuthProvider struct {
-	worker   frankenphp.Workers
-	authPath string
-	logger   *zap.Logger
-	metrics  *Metrics
-	breaker  *CircuitBreaker
+	worker      frankenphp.Workers
+	authPath    string
+	logger      *zap.Logger
+	metrics     *Metrics
+	breaker     *CircuitBreaker
+	maxAuthBody int
 }
 
-func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker frankenphp.Workers, authPath string) *WorkerAuthProvider {
+func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker frankenphp.Workers, authPath string, maxAuthBody int) *WorkerAuthProvider {
 	return &WorkerAuthProvider{
-		logger:   logger,
-		metrics:  metrics,
-		worker:   worker,
-		authPath: authPath,
-		breaker:  NewCircuitBreaker(),
+		logger:      logger,
+		metrics:     metrics,
+		worker:      worker,
+		authPath:    authPath,
+		breaker:     NewCircuitBreaker(),
+		maxAuthBody: maxAuthBody,
 	}
 }
 
 func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResult {
-	cookie := client.Headers.Get("Cookie")
-	if cookie == "" {
-		ap.logger.Debug("Auth: No cookie received from client", zap.String("id", client.ID))
-	}
-
 	if !ap.breaker.Allow() {
 		ap.metrics.BreakerTripped.Inc()
-		ap.logger.Warn("Auth: circuit open, failing fast", zap.String("channel", channel))
+		ap.logger.Warn("Auth: circuit open", zap.String("channel", channel))
 		return AuthResult{Allowed: false}
 	}
 
 	start := time.Now()
-	defer func() {
-		ap.metrics.AuthDuration.Observe(time.Since(start).Seconds())
-	}()
+	defer func() { ap.metrics.AuthDuration.Observe(time.Since(start).Seconds()) }()
 
 	bodyData := map[string]string{
 		"channel_name": channel,
@@ -129,13 +180,18 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResu
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	rr := recorderPool.Get().(*httptest.ResponseRecorder)
+	rr := capturerPool.Get().(*responseCapturer)
+	rr.maxSize = ap.maxAuthBody
+
 	defer func() {
-		rr.Body.Reset()
-		rr.HeaderMap = make(http.Header)
-		rr.Code = 200
-		rr.Flushed = false
-		recorderPool.Put(rr)
+		rr.body.Reset()
+		// Clear headers manually
+		for k := range rr.header {
+			delete(rr.header, k)
+		}
+		rr.status = 200
+		rr.overflow = false
+		capturerPool.Put(rr)
 	}()
 
 	if ap.worker == nil {
@@ -147,28 +203,33 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResu
 
 	if err != nil {
 		ap.breaker.Report(false)
-		ap.metrics.AuthFailures.Inc()
+		ap.metrics.AuthFailures.WithLabelValues("dispatch_error").Inc()
 		ap.logger.Error("Auth: worker dispatch failed", zap.Error(err))
 		return AuthResult{Allowed: false}
 	}
 
-	if rr.Code >= 500 {
+	if rr.overflow {
 		ap.breaker.Report(false)
-		ap.metrics.AuthFailures.Inc()
-		ap.logger.Warn("Auth: worker error", zap.Int("status", rr.Code))
+		ap.metrics.AuthFailures.WithLabelValues("body_overflow").Inc()
+		ap.logger.Warn("Auth: response body too large")
+		return AuthResult{Allowed: false}
+	}
+
+	if rr.status >= 500 {
+		ap.breaker.Report(false)
+		ap.metrics.AuthFailures.WithLabelValues("worker_error").Inc()
+		ap.logger.Warn("Auth: worker error", zap.Int("status", rr.status))
 		return AuthResult{Allowed: false}
 	}
 
 	ap.breaker.Report(true)
 
-	if rr.Code != 200 {
+	if rr.status != 200 {
 		return AuthResult{Allowed: false}
 	}
 
-	body, _ := io.ReadAll(rr.Body)
+	body := make([]byte, rr.body.Len())
+	copy(body, rr.body.Bytes())
 
-	return AuthResult{
-		Allowed:  true,
-		UserData: body,
-	}
+	return AuthResult{Allowed: true, UserData: body}
 }

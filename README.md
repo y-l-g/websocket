@@ -36,6 +36,7 @@ To prevent lock contention on the central Hub during high loads, the system util
 
 * **Circuit Breaker:** Authentication requests are protected. If the PHP backend stalls, the Go layer "fails fast" to prevent a thundering herd of goroutines from exhausting system resources.
 * **Memory Pooling:** To offset the cost of real-time auth, the `WorkerAuthProvider` utilizes `sync.Pool` for HTTP Recorders, drastically reducing Garbage Collection pressure during connection storms.
+* **DoS Protection:** Authentication responses from PHP are strictly capped (default 16KB) to prevent memory exhaustion attacks.
 
 ### 4. Distributed Scaling
 
@@ -110,6 +111,13 @@ localhost {
             
             # Tuning
             num_workers     2
+            max_connections 10000       # Max concurrent clients (default: 10000)
+            max_auth_body   16384       # Max size of PHP Auth response in bytes (default: 16KB)
+            
+            # Timeouts (Go Duration format)
+            ping_period     54s         # Interval between Pings (default: 54s)
+            pong_wait       60s         # Max time to wait for Pong (default: 60s)
+            write_wait      10s         # Max time to write a message (default: 10s)
             
             # Clustering (Optional)
             # redis_host      localhost:6379
@@ -234,14 +242,15 @@ channel.whisper('typing', {
 
 Metrics are injected directly into Caddy's registry. They are available at the standard Caddy admin endpoint: `http://localhost:2019/metrics`.
 
-| Metric Name | Type | Description |
-| :--- | :--- | :--- |
-| `pogo_websocket_connections_active` | Gauge | Current active TCP connections. |
-| `pogo_websocket_messages_total` | Counter | Total messages broadcasted. |
-| `pogo_websocket_subscriptions_total` | Counter | Total active subscriptions. |
-| `pogo_websocket_auth_duration_seconds` | Histogram | Latency of the PHP Auth Worker. |
-| `pogo_websocket_circuit_breaker_open_total` | Counter | Number of requests rejected due to PHP/DB failure. |
-| `pogo_websocket_auth_failures_total` | Counter | 500/Timeouts from PHP. |
+| Metric Name | Type | Description | Labels |
+| :--- | :--- | :--- | :--- |
+| `pogo_websocket_connections_active` | Gauge | Current active TCP connections. | |
+| `pogo_websocket_messages_total` | Counter | Total messages broadcasted. | |
+| `pogo_websocket_subscriptions_total` | Counter | Total active subscriptions. | |
+| `pogo_websocket_auth_duration_seconds` | Histogram | Latency of the PHP Auth Worker. | |
+| `pogo_websocket_circuit_breaker_open_total` | Counter | Auth requests rejected by Circuit Breaker. | |
+| `pogo_websocket_auth_failures_total` | Counter | Failed auth requests. | `reason` (worker_error, dispatch_error, body_overflow) |
+| `pogo_websocket_messages_dropped_total` | Counter | Messages dropped due to full client buffer. | |
 
 ---
 
@@ -253,4 +262,5 @@ We use a `Makefile` to enforce the strict compile/test loop.
 
 * `make build`: Compiles the binary.
 * `make test`: Runs the Go unit test suite (including Sharding and Circuit Breaker verification).
+* `make test-integration`: Runs the end-to-end integration scenario.
 * `make demo`: Runs the example app.

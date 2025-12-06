@@ -58,7 +58,7 @@ jobs:
 
       - name: Build Custom FrankenPHP
         env:
-          XCADDY_GO_BUILD_FLAGS: "-ldflags='-w -s' -tags=nobadger,nomysql,nopgx"
+          XCADDY_GO_BUILD_FLAGS: "-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher"
         run: |
           xcaddy build \
             --output frankenphp-linux-x86_64 \

@@ -78,7 +78,7 @@ func (wm *WebhookManager) Notify(eventName, channelName string) {
 			wm.logger.Error("Webhook: request failed", zap.Error(err))
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != 200 {
 			wm.logger.Warn("Webhook: non-200 response", zap.Int("status", resp.StatusCode))

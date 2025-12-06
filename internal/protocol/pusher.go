@@ -16,6 +16,13 @@ const (
 	EventMemberRemoved         = "pusher_internal:member_removed"
 )
 
+// Channel Prefixes
+const (
+	ChannelPrefixPrivate  = "private-"
+	ChannelPrefixPresence = "presence-"
+	ChannelPrefixClient   = "client-"
+)
+
 // Error Codes
 const (
 	ErrorSubscriptionDenied = 4009

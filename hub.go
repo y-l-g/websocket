@@ -12,8 +12,7 @@ import (
 )
 
 const (
-	NumShards      = 32
-	MaxConnections = 10000
+	NumShards = 32
 )
 
 var (
@@ -24,8 +23,8 @@ func RegisterHub(appID string, h *Hub) {
 	hubRegistry.Store(appID, h)
 }
 
-func UnregisterHub(appID string) {
-	hubRegistry.Delete(appID)
+func UnregisterHub(appID string, h *Hub) {
+	hubRegistry.CompareAndDelete(appID, h)
 }
 
 func GetHub(appID string) *Hub {
@@ -44,10 +43,15 @@ type Hub struct {
 	ctx     context.Context
 	shards  []*HubShard
 
+	// Config
+	maxConnections int64
+
 	// Synchronization
-	conns atomic.Int64
-	wg    sync.WaitGroup
-	done  chan struct{}
+	clientsMu sync.RWMutex
+	clients   map[*Client]bool
+	conns     atomic.Int64
+	wg        sync.WaitGroup
+	done      chan struct{}
 
 	clientMessage chan *ClientMessageWrapper
 	subscribe     chan *Subscription
@@ -55,9 +59,9 @@ type Hub struct {
 }
 
 type BroadcastMessage struct {
-	Channel string `json:"channel"`
-	Event   string `json:"event"`
-	Data    string `json:"data"`
+	Channel string          `json:"channel"`
+	Event   string          `json:"event"`
+	Data    json.RawMessage `json:"data"`
 }
 
 type Subscription struct {
@@ -73,19 +77,21 @@ type ClientMessageWrapper struct {
 	Data    json.RawMessage
 }
 
-func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metrics, auth AuthProvider, webhook *WebhookManager, broker Broker) *Hub {
+func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metrics, auth AuthProvider, webhook *WebhookManager, broker Broker, maxConn int) *Hub {
 	h := &Hub{
-		AppID:         appID,
-		auth:          auth,
-		broker:        broker,
-		logger:        logger,
-		metrics:       metrics,
-		ctx:           ctx,
-		done:          make(chan struct{}),
-		clientMessage: make(chan *ClientMessageWrapper),
-		subscribe:     make(chan *Subscription),
-		unsubscribe:   make(chan *Subscription),
-		shards:        make([]*HubShard, NumShards),
+		AppID:          appID,
+		auth:           auth,
+		broker:         broker,
+		logger:         logger,
+		metrics:        metrics,
+		ctx:            ctx,
+		maxConnections: int64(maxConn),
+		done:           make(chan struct{}),
+		clientMessage:  make(chan *ClientMessageWrapper),
+		subscribe:      make(chan *Subscription),
+		unsubscribe:    make(chan *Subscription),
+		shards:         make([]*HubShard, NumShards),
+		clients:        make(map[*Client]bool),
 	}
 
 	for i := 0; i < NumShards; i++ {
@@ -104,37 +110,54 @@ func (h *Hub) getShard(key string) *HubShard {
 }
 
 func (h *Hub) Register(c *Client) {
-	if h.conns.Load() >= MaxConnections {
+	if h.conns.Load() >= h.maxConnections {
 		h.logger.Warn("Hub: max connections reached, rejecting", zap.String("id", c.ID))
 		c.conn.Close()
 		return
 	}
 
+	h.clientsMu.Lock()
+	h.clients[c] = true
+	h.clientsMu.Unlock()
+
 	h.conns.Add(1)
 	h.wg.Add(1)
 	h.metrics.Connections.Inc()
 
-	shard := h.getShard(c.ID)
+	h.logger.Debug("Hub: registered client", zap.String("id", c.ID))
 
-	select {
-	case shard.register <- c:
-		h.logger.Debug("Hub: registered client", zap.String("id", c.ID))
-	case <-h.ctx.Done():
-		h.conns.Add(-1)
-		h.wg.Done()
-		h.metrics.Connections.Dec()
-		c.conn.Close()
+	dataMap := map[string]interface{}{
+		"socket_id":        c.ID,
+		"activity_timeout": 120,
 	}
+	dataBytes, _ := json.Marshal(dataMap)
+	payload := map[string]interface{}{
+		"event": protocol.EventConnectionEstablished,
+		"data":  string(dataBytes),
+	}
+	msg, _ := json.Marshal(payload)
+
+	c.Send(msg)
 }
 
 func (h *Hub) Unregister(c *Client) {
+	h.clientsMu.Lock()
+	if _, ok := h.clients[c]; !ok {
+		h.clientsMu.Unlock()
+		return
+	}
+	delete(h.clients, c)
+	h.clientsMu.Unlock()
+
 	h.conns.Add(-1)
 	h.metrics.Connections.Dec()
 
-	for _, shard := range h.shards {
-		select {
-		case shard.remove <- c:
-		case <-h.ctx.Done():
+	for i, shard := range h.shards {
+		if c.HasShard(i) {
+			select {
+			case shard.cleanup <- c:
+			case <-h.ctx.Done():
+			}
 		}
 	}
 
@@ -153,17 +176,38 @@ func (h *Hub) Authorize(client *Client, channel string) AuthResult {
 }
 
 func (h *Hub) Publish(channel, event, data string) bool {
-	if len(channel) > protocol.MaxChannelLength || len(event) > protocol.MaxEventLength || len(data) > protocol.MaxDataSize {
-		h.logger.Warn("Hub: dropped oversized message")
+	// Detailed Validation Logging for CGO Observability
+	if len(channel) > protocol.MaxChannelLength {
+		h.logger.Error("Hub: publish failed, channel name too long",
+			zap.String("channel", channel),
+			zap.Int("length", len(channel)),
+			zap.Int("limit", protocol.MaxChannelLength))
+		return false
+	}
+
+	if len(event) > protocol.MaxEventLength {
+		h.logger.Error("Hub: publish failed, event name too long",
+			zap.String("event", event),
+			zap.Int("length", len(event)),
+			zap.Int("limit", protocol.MaxEventLength))
+		return false
+	}
+
+	if len(data) > protocol.MaxDataSize {
+		h.logger.Error("Hub: publish failed, data payload too large",
+			zap.Int("length", len(data)),
+			zap.Int("limit", protocol.MaxDataSize))
 		return false
 	}
 
 	h.metrics.Messages.Inc()
 
+	raw := json.RawMessage(data)
+
 	msg := &BroadcastMessage{
 		Channel: channel,
 		Event:   event,
-		Data:    data,
+		Data:    raw,
 	}
 
 	err := h.broker.Publish(h.ctx, msg)
@@ -209,7 +253,14 @@ func (h *Hub) Run() {
 
 		case <-h.ctx.Done():
 			h.logger.Info("Hub: shutting down, draining connections...")
-			h.broker.Close()
+			_ = h.broker.Close()
+
+			h.clientsMu.Lock()
+			for c := range h.clients {
+				_ = c.conn.Close()
+			}
+			h.clientsMu.Unlock()
+
 			h.wg.Wait()
 			h.logger.Info("Hub: shutdown complete")
 			return

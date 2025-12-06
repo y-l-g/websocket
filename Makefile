@@ -25,6 +25,10 @@ clean:
 	go clean -cache
 	rm -f frankenphp
 
+# Run Integration Tests (Requires local build)
+test-integration: build
+	go test -v -tags=nobadger,nomysql,nopgx,nowatcher ./tests/integration/...
+
 # Helper to run the demo
 run-demo: build
 	./frankenphp run --config examples/demo-laravel-app/Caddyfile
