@@ -41,7 +41,7 @@ To prevent lock contention on the central Hub during high loads, the system util
 ### 4. Distributed Scaling
 
 * **Memory Broker (Default):** For single-server setups, messages flow through Go channels.
-* **Redis Broker:** For Cluster setups, the engine switches to a Redis Pub/Sub adapter. It features an 
+* **Redis Broker:** For Cluster setups, the engine switches to a Redis Pub/Sub adapter. It features an
 **Exponential Backoff Reconnection Loop**, ensuring the process survives Redis outages without crashing.
 
 ---
