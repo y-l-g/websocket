@@ -51,7 +51,7 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial failed: %v", err)
 		}
-		defer ws.Close()
+		defer func() { _ = ws.Close() }()
 
 		expectHandshake(t, ws)
 
@@ -82,14 +82,16 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Publish request failed: %v", err)
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != 200 {
 			t.Errorf("Publish endpoint returned %d", resp.StatusCode)
 		}
 
 		// Expect Broadcast
-		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if err := ws.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("SetReadDeadline failed: %v", err)
+		}
 		if err := ws.ReadJSON(&msg); err != nil {
 			t.Fatalf("Broadcast read failed: %v", err)
 		}
@@ -103,17 +105,21 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial failed: %v", err)
 		}
-		defer ws.Close()
+		defer func() { _ = ws.Close() }()
 
 		expectHandshake(t, ws)
 
 		// Subscribe to FORBIDDEN channel
 		subPayload := `{"event":"pusher:subscribe","data":{"channel":"private-forbidden"}}`
-		ws.WriteMessage(websocket.TextMessage, []byte(subPayload))
+		if err := ws.WriteMessage(websocket.TextMessage, []byte(subPayload)); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
 
 		// Expect Error
 		var msg map[string]interface{}
-		ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+		if err := ws.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+			t.Fatalf("SetReadDeadline failed: %v", err)
+		}
 		if err := ws.ReadJSON(&msg); err != nil {
 			t.Fatalf("Read failed: %v", err)
 		}
@@ -135,19 +141,25 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial failed: %v", err)
 		}
-		defer ws.Close()
+		defer func() { _ = ws.Close() }()
 		expectHandshake(t, ws)
 
 		// Send Garbage
-		ws.WriteMessage(websocket.TextMessage, []byte(`{INVALID_JSON`))
+		if err := ws.WriteMessage(websocket.TextMessage, []byte(`{INVALID_JSON`)); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
 
 		// Server should NOT disconnect immediately (log warning internally).
 		// We verify it's still alive by sending a valid Ping.
-		ws.WriteMessage(websocket.TextMessage, []byte(`{"event":"pusher:ping"}`))
+		if err := ws.WriteMessage(websocket.TextMessage, []byte(`{"event":"pusher:ping"}`)); err != nil {
+			t.Fatalf("Write failed: %v", err)
+		}
 
 		// Expect Pong
 		var msg map[string]interface{}
-		ws.SetReadDeadline(time.Now().Add(1 * time.Second))
+		if err := ws.SetReadDeadline(time.Now().Add(1 * time.Second)); err != nil {
+			t.Fatalf("SetReadDeadline failed: %v", err)
+		}
 		if err := ws.ReadJSON(&msg); err != nil {
 			t.Fatalf("Server died or didn't respond to ping after garbage: %v", err)
 		}
@@ -159,7 +171,9 @@ func TestEndToEnd(t *testing.T) {
 
 func expectHandshake(t *testing.T, ws *websocket.Conn) {
 	var connectMsg map[string]interface{}
-	ws.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if err := ws.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatalf("SetReadDeadline failed: %v", err)
+	}
 	if err := ws.ReadJSON(&connectMsg); err != nil {
 		t.Fatalf("Failed to read handshake: %v", err)
 	}
@@ -172,7 +186,7 @@ func waitForServer() bool {
 	for i := 0; i < 20; i++ {
 		conn, err := http.Get(HttpURL)
 		if err == nil {
-			conn.Body.Close()
+			_ = conn.Body.Close()
 			return true
 		}
 		time.Sleep(200 * time.Millisecond)

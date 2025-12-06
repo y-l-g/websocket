@@ -112,7 +112,7 @@ func (h *Hub) getShard(key string) *HubShard {
 func (h *Hub) Register(c *Client) {
 	if h.conns.Load() >= h.maxConnections {
 		h.logger.Warn("Hub: max connections reached, rejecting", zap.String("id", c.ID))
-		c.conn.Close()
+		_ = c.conn.Close() // Explicitly ignore error
 		return
 	}
 

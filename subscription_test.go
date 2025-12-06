@@ -20,6 +20,7 @@ func newTestSubManager() *SubscriptionManager {
 func TestPresenceParsing(t *testing.T) {
 	sm := newTestSubManager()
 
+	// Create a dummy client with a buffered channel to inspect messages
 	client := &Client{
 		ID:         "socket-id-1",
 		send:       make(chan []byte, 10),
@@ -48,7 +49,9 @@ func TestPresenceParsing(t *testing.T) {
 	select {
 	case msg := <-client.send:
 		var parsed map[string]interface{}
-		json.Unmarshal(msg, &parsed)
+		if err := json.Unmarshal(msg, &parsed); err != nil {
+			t.Fatalf("Unmarshal failed: %v", err)
+		}
 		if parsed["event"] != "pusher_internal:subscription_succeeded" {
 			t.Errorf("Expected subscription_succeeded, got %v", parsed["event"])
 		}
@@ -57,15 +60,20 @@ func TestPresenceParsing(t *testing.T) {
 	}
 
 	// Case 2: Invalid Auth (Missing channel_data)
-	client2 := &Client{ID: "socket-id-2", send: make(chan []byte, 10)}
+	client2 := &Client{
+		ID:         "socket-id-2",
+		send:       make(chan []byte, 10),
+		PingPeriod: DefaultPingPeriod,
+		WriteWait:  DefaultWriteWait,
+		PongWait:   DefaultPongWait,
+	}
 	badAuth := []byte(`{"auth":"sig"}`) // No channel_data
 
 	sm.Subscribe(client2, channel, badAuth)
 
-	if _, ok := sm.clients[client2][channel]; !ok {
-		// Note: The logic adds to 'clients' map BEFORE checking presence data.
-		// This is technically compliant (client is subscribed to channel, but not presence list).
-		// However, let's verify it didn't crash or add a nil member.
+	// SA4006: ok unused
+	if _, exists := sm.clients[client2][channel]; !exists {
+		// Just verify logic didn't crash
 	}
 
 	// Verify it wasn't added to presence map with empty ID
@@ -80,8 +88,8 @@ func TestMemberTracking(t *testing.T) {
 	sm := newTestSubManager()
 	channel := "presence-room"
 
-	c1 := &Client{ID: "c1", send: make(chan []byte, 10)}
-	c2 := &Client{ID: "c2", send: make(chan []byte, 10)}
+	c1 := &Client{ID: "c1", send: make(chan []byte, 10), PingPeriod: DefaultPingPeriod, WriteWait: DefaultWriteWait, PongWait: DefaultPongWait}
+	c2 := &Client{ID: "c2", send: make(chan []byte, 10), PingPeriod: DefaultPingPeriod, WriteWait: DefaultWriteWait, PongWait: DefaultPongWait}
 
 	// 1. Subscribe C1 (User A)
 	authA := []byte(`{"channel_data": "{\"user_id\":\"A\"}"}`)
@@ -97,7 +105,9 @@ func TestMemberTracking(t *testing.T) {
 	select {
 	case msg := <-c1.send:
 		var parsed map[string]interface{}
-		json.Unmarshal(msg, &parsed)
+		if err := json.Unmarshal(msg, &parsed); err != nil {
+			t.Fatalf("Unmarshal failed: %v", err)
+		}
 		if parsed["event"] != "pusher_internal:member_added" {
 			t.Errorf("Expected member_added, got %v", parsed["event"])
 		}
@@ -116,7 +126,9 @@ func TestMemberTracking(t *testing.T) {
 	select {
 	case msg := <-c1.send:
 		var parsed map[string]interface{}
-		json.Unmarshal(msg, &parsed)
+		if err := json.Unmarshal(msg, &parsed); err != nil {
+			t.Fatalf("Unmarshal failed: %v", err)
+		}
 		if parsed["event"] != "pusher_internal:member_removed" {
 			t.Errorf("Expected member_removed, got %v", parsed["event"])
 		}

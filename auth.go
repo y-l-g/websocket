@@ -21,6 +21,8 @@ const (
 	StateHalfOpen
 )
 
+// ... responseCapturer struct and pool (Unchanged) ...
+
 type responseCapturer struct {
 	status   int
 	header   http.Header
@@ -97,27 +99,31 @@ func (cb *CircuitBreaker) Report(success bool) {
 	defer cb.mu.Unlock()
 
 	if success {
-		if cb.state == StateHalfOpen {
+		switch cb.state {
+		case StateHalfOpen:
 			cb.state = StateClosed
 			cb.failures = 0
-		} else if cb.state == StateClosed {
+		case StateClosed:
 			cb.failures = 0
 		}
 	} else {
-		if cb.state == StateHalfOpen {
+		switch cb.state {
+		case StateHalfOpen:
 			cb.state = StateOpen
 			cb.lastFailure = time.Now()
-		} else if cb.state == StateClosed {
+		case StateClosed:
 			cb.failures++
 			if cb.failures >= cb.threshold {
 				cb.state = StateOpen
 				cb.lastFailure = time.Now()
 			}
-		} else if cb.state == StateOpen {
+		case StateOpen:
 			cb.lastFailure = time.Now()
 		}
 	}
 }
+
+// ... rest of auth.go (AuthProvider interfaces, WorkerAuthProvider) Unchanged ...
 
 type AuthResult struct {
 	Allowed  bool
@@ -185,7 +191,6 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResu
 
 	defer func() {
 		rr.body.Reset()
-		// Clear headers manually
 		for k := range rr.header {
 			delete(rr.header, k)
 		}
