@@ -1,8 +1,12 @@
-# Pogo WebSocket Engine
+# Pogo WebSocket
 
 **The Native, High-Performance Real-Time Solution for PHP.**
 
-The **Pogo WebSocket Engine** is a Caddy module written in Go that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary. It eliminates the need for external Node.js sidecars.
+The **Pogo WebSocket** :
+
+* A Caddy module written in Go that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
+* CGO-exported function `pogo_websocket_publish` and `pogo_websocket_publish` allows PHP to broadcast messages instantly via shared memory.
+* The Caddy module uses FrankenPHP's `SendRequest` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
 
 ---
 
@@ -32,7 +36,7 @@ xcaddy build \
     --with github.com/dunglas/caddy-cbrotli
 ```
 
-### Step 2: Install the PHP Driver
+### Step 2: Install the Laravel Broadcast Driver
 
 ```bash
 composer require pogo/websocket
@@ -62,7 +66,7 @@ Configure the module within your `Caddyfile`.
             
             # --- Authentication ---
             auth_path       /pogo/auth
-            auth_script     public/frankenphp-worker.php
+            auth_script     public/frankenphp-worker.php # Standard Laravel Octane worker
             webhook_secret  super-secret-key  # REQUIRED for User Auth (pusher:signin)
             
             # --- Security & Limits ---
@@ -105,12 +109,6 @@ VITE_POGO_WSS_PORT=443
 
 ---
 
-## 🔐 User Authentication (Sign-In)
-
-Pogo supports the Pusher User Authentication flow (formerly "System Events"), allowing you to terminate specific user connections via the API.
-
----
-
 ## 📊 Metrics
 
 Prometheus metrics are available at `http://localhost:2019/metrics` (Caddy Admin):
@@ -122,6 +120,9 @@ Prometheus metrics are available at `http://localhost:2019/metrics` (Caddy Admin
 | `pogo_websocket_auth_failures_total` | Counter | Failed auths (labels: `concurrency_limit`, `worker_error`). |
 | `pogo_websocket_circuit_breaker_open_total` | Counter | Requests rejected by Circuit Breaker. |
 | `pogo_websocket_broker_dropped_total` | Counter | Messages dropped due to internal backpressure. |
+| `pogo_websocket_subscriptions_total` | Counter | Total active subscriptions. |
+| `pogo_websocket_auth_duration_seconds` | Histogram | Latency of the PHP Auth Worker. |
+| `pogo_websocket_messages_dropped_total` | Counter | Messages dropped due to full client buffer. |
 
 ---
 
