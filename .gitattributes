@@ -1,0 +1,48 @@
+.github export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore
+.hadolint.yaml export-ignore
+.php-cs-fixer.dist.php export-ignore
+.php-cs-fixer.cache export-ignore
+.phpunit.result.cache export-ignore
+phpstan.neon export-ignore
+.dockerignore export-ignore
+
+Makefile export-ignore 
+README.md export-ignore 
+examples export-ignore 
+Dockerfile export-ignore
+
+go.mod export-ignore
+go.sum export-ignore
+
+websocket.c export-ignore
+websocket.go export-ignore
+websocket.h export-ignore
+websocket.stub.php export-ignore
+websocket_arginfo.h export-ignore
+_cgo_export.h export-ignore
+websocket.go.bak export-ignore
+internal
+tests/performance
+
+websocket_test.go export-ignore
+auth.go export-ignore
+broker.go export-ignore
+hub.go export-ignore
+metrics.go export-ignore
+metrics_test.go export-ignore
+caddy.go export-ignore
+client.go export-ignore
+shard.go export-ignore
+hub_test.go export-ignore
+breaker_test.go export-ignore
+redis_broker.go export-ignore
+redis_broker_test.go export-ignore
+subscription.go export-ignore
+subscription_test.go export-ignore
+webhook.go export-ignore
+webhook_test.go export-ignore
+auth_test.go export-ignore
+client_test.go export-ignore
+

@@ -1,0 +1,26 @@
+{
+    frankenphp
+    order pogo_websocket before php_server
+    admin off
+    debug
+}
+
+:9090 {
+    route /app/* {
+        pogo_websocket {
+            app_id          test-app
+            auth_path       /auth
+            auth_script     tests/integration/fixtures/worker.php
+            num_workers     1
+        }
+    }
+
+    route /publish/* {
+        root * tests/integration/fixtures
+        php_server
+    }
+    route /auth {
+        root * tests/integration/fixtures
+        php_server
+    }
+}

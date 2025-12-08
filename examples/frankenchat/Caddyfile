@@ -1,0 +1,27 @@
+{
+    debug
+    frankenphp
+    order pogo_websocket before php_server
+    metrics {
+		per_host
+	}
+    admin off
+}
+
+localhost {
+    route /app/* {
+        pogo_websocket {
+            app_id          pogo-app
+            auth_path       /pogo/auth
+            auth_script     examples/frankenchat/public/frankenphp-worker.php
+            num_workers     2
+
+            webhook_url     http://localhost/webhook
+            webhook_secret  super-secret-key
+            
+            # redis_host      localhost:6379
+        }
+    }
+    root * examples/frankenchat/public
+    php_server
+}
