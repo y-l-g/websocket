@@ -1,0 +1,13 @@
+{
+    debug
+    frankenphp
+    metrics {
+		per_host
+	}
+    admin off
+}
+
+:8000 {
+    root * public
+    php_server
+}

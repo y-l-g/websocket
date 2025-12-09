@@ -2,10 +2,8 @@
 
 **The Native, High-Performance Real-Time Solution for PHP.**
 
-The **Pogo WebSocket** :
-
-* A Caddy module written in Go that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
-* CGO-exported function `pogo_websocket_publish` and `pogo_websocket_publish` allows PHP to broadcast messages instantly via shared memory.
+* A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
+* CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_publish` allow PHP to broadcast messages instantly via shared memory.
 * The Caddy module uses FrankenPHP's `SendRequest` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
 
 ---
