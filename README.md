@@ -38,7 +38,7 @@ xcaddy build \
 
 ```bash
 composer require pogo/websocket
-php artisan pogo:ws-install
+php artisan pogo:ws-install #or make make manually the needed configs
 ```
 
 ---
@@ -47,49 +47,79 @@ php artisan pogo:ws-install
 
 ### Caddyfile
 
-Configure the module within your `Caddyfile`.
+Configure the module within your `Caddyfile` (this exemple is a copy of the octane Caddyfile).
 
 ```caddy
 {
-    frankenphp
+    {$CADDY_GLOBAL_OPTIONS}
+
+    admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
+
+    frankenphp {
+        worker {
+            file "{$APP_PUBLIC_PATH}/frankenphp-worker.php"
+            {$CADDY_SERVER_WORKER_DIRECTIVE}
+            {$CADDY_SERVER_WATCH_DIRECTIVES}
+        }
+    }
     order pogo_websocket before php_server
 }
 
-:80 {
-    # Match the Pusher Protocol path
+{$CADDY_EXTRA_CONFIG}
+
+{$CADDY_SERVER_SERVER_NAME} {
+    log {
+        level {$CADDY_SERVER_LOG_LEVEL}
+
+    # Redact the authorization query parameter that can be set by Mercure...
+        format filter {
+            wrap {$CADDY_SERVER_LOGGER}
+            fields {
+                uri query {
+                    replace authorization REDACTED
+                }
+            }
+        }
+    }
+
     route /app/* {
         pogo_websocket {
-            # --- Identity ---
             app_id          pogo-app
-            
-            # --- Authentication ---
             auth_path       /pogo/auth
-            auth_script     public/frankenphp-worker.php # Standard Laravel Octane worker
-            webhook_secret  super-secret-key  # REQUIRED for User Auth (pusher:signin)
+            auth_script     {$APP_PUBLIC_PATH}/websocket-worker.php
+            webhook_secret  super-secret-key
             
-            # --- Security & Limits ---
             handshake_rate  100         # New connection attempts per second (Default: 100)
             handshake_burst 50          # Burst allowance (Default: 50)
             max_connections 10000       # Max concurrent clients
             max_auth_body   16384       # Max PHP Auth response size (bytes)
             max_concurrent_auth 100     # Max concurrent PHP Auth requests (DoS Protection)
             
-            # --- Tuning ---
             num_workers     2           # Number of PHP workers dedicated to Auth
             num_shards      8           # Internal sharding (Default: 2 * CPU Cores)
             
-            # --- Timeouts ---
             ping_period     54s         # Server Ping interval
             pong_wait       60s         # Client Pong timeout
             write_wait      10s         # Socket write timeout
             
-            # --- Clustering (Optional) ---
             # redis_host      localhost:6379
         }
     }
-    
-    # PHP Application
-    php_server
+
+    route {
+        root * "{$APP_PUBLIC_PATH}"
+        encode zstd br gzip
+
+        # Mercure configuration is injected here...
+        {$CADDY_SERVER_EXTRA_DIRECTIVES}
+
+        php_server {
+            index frankenphp-worker.php
+            try_files {path} frankenphp-worker.php
+            # Required for the public/storage/ directory...
+            resolve_root_symlink
+        }
+    }
 }
 ```
 

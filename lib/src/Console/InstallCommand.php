@@ -24,6 +24,7 @@ class InstallCommand extends Command
         $this->enableBroadcasting();
         $this->configureBroadcastingDriver();
         $this->updateEnvironmentFile();
+        $this->installWebSocketWorker(); // <-- Ajouté ici
         $this->installFrontendScaffolding();
         $this->installNodeDependencies();
 
@@ -227,5 +228,29 @@ class InstallCommand extends Command
         } else {
             $this->components->info('Node dependencies installed successfully.');
         }
+    }
+
+    protected function installWebSocketWorker()
+    {
+        $filesystem = new Filesystem();
+        $workerPath = $this->laravel->publicPath('websocket-worker.php');
+
+        if ($filesystem->exists($workerPath) && !$this->option('force')) {
+            $this->components->info('WebSocket worker already exists.');
+            return;
+        }
+
+        $workerContent = <<<'PHP'
+<?php
+
+// Set a default for the application base path and public path if they are missing...
+$_SERVER['APP_BASE_PATH'] = $_ENV['APP_BASE_PATH'] ?? $_SERVER['APP_BASE_PATH'] ?? __DIR__.'/..';
+$_SERVER['APP_PUBLIC_PATH'] = $_ENV['APP_PUBLIC_PATH'] ?? $_SERVER['APP_BASE_PATH'] ?? __DIR__;
+
+require __DIR__.'/../vendor/laravel/octane/bin/frankenphp-worker.php';
+PHP;
+
+        $filesystem->put($workerPath, $workerContent);
+        $this->components->info('Created websocket-worker.php');
     }
 }
