@@ -2,7 +2,7 @@ FROM dunglas/frankenphp:1.11-builder-php8.5-trixie AS builder
 
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
 
-COPY go/. /websocket/
+COPY mod/. /websocket/
 
 RUN CGO_ENABLED=1 \
     XCADDY_SETCAP=1 \
