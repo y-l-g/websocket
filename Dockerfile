@@ -14,7 +14,7 @@ RUN CGO_ENABLED=1 \
     --with github.com/dunglas/frankenphp=./ \
     --with github.com/dunglas/frankenphp/caddy=./caddy/ \
     --with github.com/dunglas/caddy-cbrotli \
-    --with github.com/y-l-g/websocket=/websocket/
+    --with github.com/y-l-g/websocket/module=/websocket/
 
 FROM dunglas/frankenphp:1.11-builder-php8.5-trixie AS runner
 
