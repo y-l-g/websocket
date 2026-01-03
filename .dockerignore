@@ -1,8 +1,5 @@
 .gitattributes
 .gitignore
 .hadolint.yaml
-.php-cs-fixer.dist.php
 Dockerfile
-Dockerfile.debug
-Makefile
 README.md

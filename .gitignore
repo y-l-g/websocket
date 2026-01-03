@@ -1,6 +1,2 @@
 frankenphp
 vendor
-composer.lock
-.php-cs-fixer.cache
-websocket.go.bak
-.phpunit.result.cache

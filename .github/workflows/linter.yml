@@ -19,7 +19,7 @@ jobs:
     name: Lint Go
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: actions/setup-go@v6
         with:
@@ -42,7 +42,7 @@ jobs:
           echo "CGO_CFLAGS=-D_GNU_SOURCE $(php-config --includes)" >> $GITHUB_ENV
           echo "CGO_LDFLAGS=$(php-config --ldflags) $(php-config --libs)" >> $GITHUB_ENV
 
-      - name: Run golangci-lint
+      - name: Run golangci-lint go/...
         uses: golangci/golangci-lint-action@v8
         with:
           version: latest
@@ -54,22 +54,21 @@ jobs:
     name: Lint PHP
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - uses: shivammathur/setup-php@v2
         with:
-          php-version: "8.4"
+          php-version: "8.5"
           tools: php-cs-fixer, cs2pr
 
       - name: Run PHP-CS-Fixer
-        run: php-cs-fixer fix --dry-run --format=checkstyle | cs2pr
-
+        run: php-cs-fixer fix --config=lib/.php-cs-fixer.dist.php --dry-run --format=checkstyle lib | cs2pr
   lint-misc:
     name: Lint Misc (Yaml, MD, Bash)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 

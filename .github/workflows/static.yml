@@ -59,7 +59,7 @@ jobs:
         run: |
           xcaddy build \
             --output frankenphp-linux-x86_64 \
-            --with github.com/y-l-g/websocket=. \
+            --with github.com/y-l-g/websocket/mod=./mod \
             --with github.com/dunglas/frankenphp/caddy \
             --with github.com/dunglas/caddy-cbrotli
 
@@ -67,18 +67,20 @@ jobs:
         env:
           GOFLAGS: "-tags=nobadger,nomysql,nopgx,nowatcher"
         run: |
-          cp frankenphp-linux-x86_64 frankenphp
+          cp frankenphp-linux-x86_64 ./mod/frankenphp
+          cd mod
           go test -v -race .
           go test -v -race ./tests/integration/...
+          cd ../
 
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-progress
 
       - name: Run PHP Tests via FrankenPHP
-        run: ./frankenphp-linux-x86_64 php-cli ./vendor/bin/phpunit
+        run: ./frankenphp-linux-x86_64 php-cli ./vendor/bin/phpunit -c lib/phpunit.xml lib
 
       - name: Run PHPStan (Static Analysis)
-        run: ./vendor/bin/phpstan analyze --error-format=github
+        run: ./vendor/bin/phpstan analyze --configuration=lib/phpstan.neon --error-format=github
 
       - name: Upload Binary as Artifact
         uses: actions/upload-artifact@v4
