@@ -47,7 +47,7 @@ jobs:
         with:
           version: latest
           args: --timeout=5m --build-tags=nobadger,nomysql,nopgx,nowatcher
-          working-directory: mod
+          working-directory: module
 
         env:
           CGO_ENABLED: 1
