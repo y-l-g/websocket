@@ -59,7 +59,7 @@ jobs:
         run: |
           xcaddy build \
             --output frankenphp-linux-x86_64 \
-            --with github.com/y-l-g/websocket/mod=./mod \
+            --with github.com/y-l-g/websocket/module=./module \
             --with github.com/dunglas/frankenphp/caddy \
             --with github.com/dunglas/caddy-cbrotli
 
@@ -67,8 +67,8 @@ jobs:
         env:
           GOFLAGS: "-tags=nobadger,nomysql,nopgx,nowatcher"
         run: |
-          cp frankenphp-linux-x86_64 ./mod/frankenphp
-          cd mod
+          cp frankenphp-linux-x86_64 ./module/frankenphp
+          cd module
           go test -v -race .
           go test -v -race ./tests/integration/...
           cd ../
