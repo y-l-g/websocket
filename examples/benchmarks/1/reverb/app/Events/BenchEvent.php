@@ -10,7 +10,9 @@ use Illuminate\Queue\SerializesModels;
 
 class BenchEvent implements ShouldBroadcastNow
 {
-    use Dispatchable, InteractsWithSockets, SerializesModels;
+    use Dispatchable;
+    use InteractsWithSockets;
+    use SerializesModels;
 
     public $payload;
     public $sentAt;

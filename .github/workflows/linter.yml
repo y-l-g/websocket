@@ -82,5 +82,5 @@ jobs:
           VALIDATE_MARKDOWN: true
           VALIDATE_BASH: true
           VALIDATE_DOCKERFILE_HADOLINT: true
-
+          FILTER_REGEX_EXCLUDE: .*/examples/.*
           DEFAULT_BRANCH: main

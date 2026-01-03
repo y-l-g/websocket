@@ -18,7 +18,7 @@ Route::get('/fire', function (Request $request) {
     return response()->json([
         'status' => 'fired',
         'count' => $count,
-        'duration_ms' => (microtime(true) - $start) * 1000
+        'duration_ms' => (microtime(true) - $start) * 1000,
     ]);
 });
 
