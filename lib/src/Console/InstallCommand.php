@@ -19,12 +19,12 @@ class InstallCommand extends Command
     {
         $this->components->info('🐘 Installing Pogo WebSocket Engine...');
 
+        $this->installOctaneWorker();
         $this->publishConfiguration();
         $this->installChannelsRoutes();
         $this->enableBroadcasting();
         $this->configureBroadcastingDriver();
         $this->updateEnvironmentFile();
-        $this->installWebSocketWorker(); // <-- Ajouté ici
         $this->installFrontendScaffolding();
         $this->installNodeDependencies();
 
@@ -35,6 +35,15 @@ class InstallCommand extends Command
             'Run [npm run build] to compile the frontend.',
             'Restart FrankenPHP to load the new worker/config.',
         ]);
+    }
+
+    protected function installOctaneWorker()
+    {
+        $this->call('octane:install', ['--server' => 'frankenphp']);
+
+        if (file_exists(public_path('frankenphp-worker.php'))) {
+            copy(public_path('frankenphp-worker.php'), public_path('websocket-worker.php'));
+        }
     }
 
     protected function publishConfiguration()
@@ -228,29 +237,5 @@ class InstallCommand extends Command
         } else {
             $this->components->info('Node dependencies installed successfully.');
         }
-    }
-
-    protected function installWebSocketWorker()
-    {
-        $filesystem = new Filesystem();
-        $workerPath = $this->laravel->publicPath('websocket-worker.php');
-
-        if ($filesystem->exists($workerPath) && !$this->option('force')) {
-            $this->components->info('WebSocket worker already exists.');
-            return;
-        }
-
-        $workerContent = <<<'PHP'
-            <?php
-
-            // Set a default for the application base path and public path if they are missing...
-            $_SERVER['APP_BASE_PATH'] = $_ENV['APP_BASE_PATH'] ?? $_SERVER['APP_BASE_PATH'] ?? __DIR__.'/..';
-            $_SERVER['APP_PUBLIC_PATH'] = $_ENV['APP_PUBLIC_PATH'] ?? $_SERVER['APP_BASE_PATH'] ?? __DIR__;
-
-            require __DIR__.'/../vendor/laravel/octane/bin/frankenphp-worker.php';
-            PHP;
-
-        $filesystem->put($workerPath, $workerContent);
-        $this->components->info('Created websocket-worker.php');
     }
 }

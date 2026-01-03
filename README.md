@@ -1,10 +1,14 @@
 # Pogo WebSocket
 
+## Warning
+
+This project is highly experimental, use with caution.
+
 **The Native, High-Performance Real-Time Solution for PHP.**
 
 * A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
-* CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_publish` allow PHP to broadcast messages instantly via shared memory.
-* The Caddy module uses FrankenPHP's `SendRequest` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
+* CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_broadcast_multi` allow PHP to broadcast messages instantly via shared memory.
+* The Caddy module uses FrankenPHP's `ExtensionWorker` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
 
 ---
 
@@ -22,6 +26,8 @@
 
 ### Step 1: Build the Binary
 
+Install a ZTS version of libphp and xcaddy. Then, use xcaddy to build FrankenPHP with the frankenphp-pogo module:
+
 ```bash
 CGO_CFLAGS="-D_GNU_SOURCE $(php-config --includes)" \
 CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
@@ -34,20 +40,18 @@ xcaddy build \
     --with github.com/dunglas/caddy-cbrotli
 ```
 
+You can also use the frankenphp binary or the docker image provided in this repository (see packages and release)
+
 ### Step 2: Install the Laravel Broadcast Driver
 
 ```bash
 composer require pogo/websocket
-php artisan pogo:ws-install #or make make manually the needed configs
+php artisan pogo:ws-install
 ```
-
----
 
 ## ⚙️ Configuration
 
-### Caddyfile
-
-Configure the module within your `Caddyfile` (this exemple is a copy of the octane Caddyfile).
+Configure the module within your `Caddyfile` at the root of your laravel project (this exemple is an adapted copy of the octane Caddyfile, it will work with `php artisan octane:frankenphp --caddyfile=Caddyfile`).
 
 ```caddy
 {
@@ -123,16 +127,22 @@ Configure the module within your `Caddyfile` (this exemple is a copy of the octa
 }
 ```
 
-### Laravel Configuration (`.env`)
+Fill your .env
 
 ```ini
 BROADCAST_CONNECTION=pogo
 WS_APP_ID=pogo-app
-WS_APP_SECRET=super-secret-key
+WS_APP_SECRET=super-secret-key #needed for pusher client but not really sensitive i guess
 
-VITE_POGO_HOST=localhost
-VITE_POGO_PORT=80
-VITE_POGO_WSS_PORT=443
+VITE_POGO_HOST=localhost #your site adress
+VITE_POGO_PORT=80 #your site port
+VITE_POGO_WSS_PORT=443 #your site port
+```
+
+Start octane (`frankenphp` must be compiled with `pogo`, use the `dockerfile` or the binary provided in this repo and put it in you bin folder).
+
+```bash
+php artisan octane:start --caddyfile=Caddyfile
 ```
 
 ---
