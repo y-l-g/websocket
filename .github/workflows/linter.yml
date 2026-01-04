@@ -43,7 +43,7 @@ jobs:
           echo "CGO_LDFLAGS=$(php-config --ldflags) $(php-config --libs)" >> $GITHUB_ENV
 
       - name: Run golangci-lint go/...
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: latest
           args: --timeout=5m --build-tags=nobadger,nomysql,nopgx,nowatcher
