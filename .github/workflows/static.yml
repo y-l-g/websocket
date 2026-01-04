@@ -83,7 +83,7 @@ jobs:
         run: ./vendor/bin/phpstan analyze --configuration=lib/phpstan.neon --error-format=github
 
       - name: Upload Binary as Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: frankenphp-binary
           path: frankenphp-linux-x86_64
@@ -95,7 +95,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Binary
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: frankenphp-binary
 
