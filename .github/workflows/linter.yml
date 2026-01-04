@@ -48,7 +48,6 @@ jobs:
           version: latest
           args: --timeout=5m --build-tags=nobadger,nomysql,nopgx,nowatcher
           working-directory: module
-
         env:
           CGO_ENABLED: 1
 
@@ -65,6 +64,7 @@ jobs:
 
       - name: Run PHP-CS-Fixer
         run: php-cs-fixer fix --config=lib/.php-cs-fixer.dist.php --dry-run --format=checkstyle lib | cs2pr
+
   lint-misc:
     name: Lint Misc (Yaml, MD, Bash)
     runs-on: ubuntu-latest
