@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sony/gobreaker"
+	"github.com/sony/gobreaker/v2"
 	"go.uber.org/zap"
 )
 
@@ -70,7 +70,7 @@ type WorkerAuthProvider struct {
 	authPath    string
 	logger      *zap.Logger
 	metrics     *Metrics
-	breaker     *gobreaker.CircuitBreaker
+	breaker     *gobreaker.CircuitBreaker[AuthResult]
 	maxAuthBody int
 	sem         chan struct{}
 	secret      string // App Secret for local verification
@@ -96,7 +96,7 @@ func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker RequestD
 		metrics:     metrics,
 		worker:      worker,
 		authPath:    authPath,
-		breaker:     gobreaker.NewCircuitBreaker(st),
+		breaker:     gobreaker.NewCircuitBreaker[AuthResult](st),
 		maxAuthBody: maxAuthBody,
 		sem:         make(chan struct{}, maxConcurrent),
 		secret:      secret,
@@ -149,7 +149,7 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResu
 		return AuthResult{Allowed: false}
 	}
 
-	result, err := ap.breaker.Execute(func() (interface{}, error) {
+	result, err := ap.breaker.Execute(func() (AuthResult, error) { // Change return type to AuthResult
 		return ap.doAuthorize(client, channel)
 	})
 
@@ -160,10 +160,10 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResu
 		case gobreaker.ErrTooManyRequests:
 			ap.metrics.BreakerTripped.Inc()
 		}
-		return AuthResult{Allowed: false}
+		return result
 	}
 
-	return result.(AuthResult)
+	return result
 }
 
 func (ap *WorkerAuthProvider) doAuthorize(client *Client, channel string) (AuthResult, error) {

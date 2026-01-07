@@ -149,10 +149,10 @@ github.com/dlclark/regexp2 v1.4.0/go.mod h1:2pZnwuY/m+8K6iRw6wQdMtk+rH5tNGR1i55k
 github.com/dlclark/regexp2 v1.7.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/dlclark/regexp2 v1.11.5 h1:Q/sSnsKerHeCkc/jSTNq1oCm7KiVgUMZRDUoRu0JQZQ=
 github.com/dlclark/regexp2 v1.11.5/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
-github.com/dunglas/frankenphp v1.11.1 h1:hMeR/Z0iYvLZqYEM5ega7ulpKjtoe+07zIarFmWH2WI=
-github.com/dunglas/frankenphp v1.11.1/go.mod h1:ZBkM7d9sAcDJ54JowrgBE/RFc3EoHBRvlUTAuOeNs2Q=
-github.com/dunglas/frankenphp/caddy v1.11.1 h1:bOcG49rvi4G2ysiJx9vNn61XYlYnYZv8gmYU0WPqT6U=
-github.com/dunglas/frankenphp/caddy v1.11.1/go.mod h1:11vJS4ZVlc+8SSyzvzOAdSpDmwvhYtEjuJ/Eqjc9JPc=
+github.com/dunglas/frankenphp v1.11.2-0.20260107082103-11160fb7b311 h1:JkSF/ZFiqXbXGPzM2bD/PcBOSXo4jG5gsivpNSvZq2k=
+github.com/dunglas/frankenphp v1.11.2-0.20260107082103-11160fb7b311/go.mod h1:ZBkM7d9sAcDJ54JowrgBE/RFc3EoHBRvlUTAuOeNs2Q=
+github.com/dunglas/frankenphp/caddy v1.11.2-0.20260107082103-11160fb7b311 h1:gttOMXhnCN1QswxKikAQIcpElGd9u4yKzxunnBs7rEw=
+github.com/dunglas/frankenphp/caddy v1.11.2-0.20260107082103-11160fb7b311/go.mod h1:11vJS4ZVlc+8SSyzvzOAdSpDmwvhYtEjuJ/Eqjc9JPc=
 github.com/dunglas/mercure v0.21.4 h1:mXPXHfB+4cYfFFCRRDY198mfef5+MQcdCpUnAHBUW2M=
 github.com/dunglas/mercure v0.21.4/go.mod h1:l/dglCjp/OQx8/quRyceRPx2hqZQ3CNviwoLMRQiJ/k=
 github.com/dunglas/mercure/caddy v0.21.4 h1:7o+6rDqfwj1EOmXOgfBFsayvJvOUP37xujQHaxuX4ps=
@@ -361,8 +361,7 @@ github.com/smallstep/scep v0.0.0-20250318231241-a25cabb69492 h1:k23+s51sgYix4Zgb
 github.com/smallstep/scep v0.0.0-20250318231241-a25cabb69492/go.mod h1:QQhwLqCS13nhv8L5ov7NgusowENUtXdEzdytjmJHdZQ=
 github.com/smallstep/truststore v0.13.0 h1:90if9htAOblavbMeWlqNLnO9bsjjgVv2hQeQJCi/py4=
 github.com/smallstep/truststore v0.13.0/go.mod h1:3tmMp2aLKZ/OA/jnFUB0cYPcho402UG2knuJoPh4j7A=
-github.com/sony/gobreaker v1.0.0 h1:feX5fGGXSl3dYd4aHZItw+FpHLvvoaqkawKjVNiFMNQ=
-github.com/sony/gobreaker v1.0.0/go.mod h1:ZKptC7FHNvhBz7dN2LGjPVBz2sZJmc0/PkyDJOjmxWY=
+github.com/sony/gobreaker/v2 v2.4.0 h1:g2KJRW1Ubty3+ZOcSEUN7K+REQJdN6yo6XvaML+jptg=
 github.com/sony/gobreaker/v2 v2.4.0/go.mod h1:pTyFJgcZ3h2tdQVLZZruK2C0eoFL1fb/G83wK1ZQl+s=
 github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=
 github.com/spaolacci/murmur3 v1.1.0 h1:7c1g84S4BPRrfL5Xrdp6fOJ206sU9y293DDHaoy0bLI=

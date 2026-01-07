@@ -59,9 +59,11 @@ jobs:
         run: |
           xcaddy build \
             --output frankenphp-linux-x86_64 \
-            --with github.com/y-l-g/websocket/module=./module \
-            --with github.com/dunglas/frankenphp/caddy \
-            --with github.com/dunglas/caddy-cbrotli
+            --with github.com/dunglas/frankenphp/caddy@main \
+            --with github.com/dunglas/caddy-cbrotli@main \
+            --with github.com/y-l-g/queue/module@main \
+            --with github.com/y-l-g/scheduler/module@main \
+            --with github.com/y-l-g/websocket/module=./module
 
       - name: Run Go Tests
         env:
