@@ -35,12 +35,12 @@ XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher" 
 CGO_ENABLED=1 \
 xcaddy build \
     --output frankenphp \
-    --with github.com/y-l-g/websocket=./v0 \
+    --with github.com/y-l-g/websocket/module \
     --with github.com/dunglas/frankenphp/caddy \
     --with github.com/dunglas/caddy-cbrotli
 ```
 
-You can also use the frankenphp binary or the docker image provided in this repository (see packages and release)
+You can also use the [frankenphp binary compiled with websocket, queue and scheduler](https://github.com/y-l-g/websocket/releases) or the [docker image](https://github.com/y-l-g?tab=packages&repo_name=websocket)
 
 ### Step 2: Install the Laravel Broadcast Driver
 
