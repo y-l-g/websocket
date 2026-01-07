@@ -15,7 +15,7 @@ RUN CGO_ENABLED=1 \
     --with github.com/dunglas/frankenphp/caddy@main \
     --with github.com/dunglas/caddy-cbrotli@main \
     --with github.com/y-l-g/scheduler/module@main \
-    --with github.com/y-l-g/websocket/module=./websocket \
+    --with github.com/y-l-g/websocket/module=/websocket \
     --with github.com/y-l-g/queue/module@main
 
 
