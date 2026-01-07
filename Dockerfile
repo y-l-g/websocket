@@ -2,6 +2,8 @@ FROM dunglas/frankenphp:1.11.1-builder-php8.5-trixie AS builder
 
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
 
+COPY module/. /websocket/
+
 RUN CGO_ENABLED=1 \
     XCADDY_SETCAP=1 \
     XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx" \
@@ -13,7 +15,7 @@ RUN CGO_ENABLED=1 \
     --with github.com/dunglas/frankenphp/caddy@main \
     --with github.com/dunglas/caddy-cbrotli@main \
     --with github.com/y-l-g/scheduler/module@main \
-    --with github.com/y-l-g/websocket/module@main \
+    --with github.com/y-l-g/websocket/module=./websocket \
     --with github.com/y-l-g/queue/module@main
 
 
