@@ -58,6 +58,9 @@ func TestEndToEnd(t *testing.T) {
 	cmd := exec.CommandContext(ctx, binPath, "run", "--config", tmpCaddyfile.Name())
 	cmd.Dir = rootDir
 
+	// cmd.Stdout = os.Stdout
+	// cmd.Stderr = os.Stderr
+
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("Failed to start server: %v", err)
 	}
@@ -79,7 +82,7 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Dial failed: %v", err)
 		}
-		defer func() { _ = ws.Close() }() // Fixed check above (well, standard is ws.Close(), here fixed in cluster_test/compliance_test, adding here for consistency)
+		defer func() { _ = ws.Close() }()
 
 		expectHandshake(t, ws)
 
@@ -107,7 +110,7 @@ func TestEndToEnd(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Publish request failed: %v", err)
 		}
-		defer func() { _ = resp.Body.Close() }() // Fixed
+		defer func() { _ = resp.Body.Close() }()
 
 		if resp.StatusCode != 200 {
 			t.Errorf("Publish endpoint returned %d", resp.StatusCode)
