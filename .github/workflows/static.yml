@@ -55,8 +55,6 @@ jobs:
 
       - name: Build Static Binary (Linux Musl)
         run: |
-          # On utilise l'image officielle qui contient déjà l'environnement de build statique.
-          # On monte le répertoire courant ($PWD) dans /workspace pour que le conteneur voie ton code.
           docker run \
             --rm \
             -v $PWD:/workspace \
@@ -65,7 +63,6 @@ jobs:
             -e XCADDY_ARGS="--with github.com/dunglas/caddy-cbrotli@main --with github.com/y-l-g/queue/module@main --with github.com/y-l-g/scheduler/module@main --with github.com/y-l-g/websocket/module=/workspace/module" \
             dunglas/frankenphp:static-builder \
             ./build-static.sh
-
           mv dist/frankenphp-linux-x86_64 frankenphp-linux-x86_64
 
       # - name: Build Custom FrankenPHP
