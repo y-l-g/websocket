@@ -61,7 +61,7 @@ jobs:
             -w /go/src/app \
             -e XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher" \
             -e XCADDY_ARGS="--with github.com/dunglas/caddy-cbrotli@main --with github.com/y-l-g/queue/module@main --with github.com/y-l-g/scheduler/module@main --with github.com/y-l-g/websocket/module=/workspace/module" \
-            dunglas/frankenphp:static-builder \
+            dunglas/frankenphp:static-builder-gnu-1.11.1 \
             ./build-static.sh
           mv dist/frankenphp-linux-x86_64 frankenphp-linux-x86_64
 
