@@ -53,29 +53,30 @@ jobs:
           echo "CGO_CFLAGS=-D_GNU_SOURCE $(php-config --includes)" >> $GITHUB_ENV
           echo "CGO_LDFLAGS=$(php-config --ldflags) $(php-config --libs)" >> $GITHUB_ENV
 
-      - name: Build Static Binary (Linux Musl)
-        run: |
-          docker run \
-            --rm \
-            -v $PWD:/workspace \
-            -w /go/src/app \
-            -e XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher" \
-            -e XCADDY_ARGS="--with github.com/dunglas/caddy-cbrotli@main --with github.com/y-l-g/queue/module@main --with github.com/y-l-g/scheduler/module@main --with github.com/y-l-g/websocket/module=/workspace/module" \
-            dunglas/frankenphp:static-builder-gnu-1.11.1 \
-            ./build-static.sh
-          mv dist/frankenphp-linux-x86_64 frankenphp-linux-x86_64
-
-      # - name: Build Custom FrankenPHP
-      #   env:
-      #     XCADDY_GO_BUILD_FLAGS: "-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher"
+      # - name: Build Static Binary
       #   run: |
-      #     xcaddy build \
-      #       --output frankenphp-linux-x86_64 \
-      #       --with github.com/dunglas/frankenphp/caddy@main \
-      #       --with github.com/dunglas/caddy-cbrotli@main \
-      #       --with github.com/y-l-g/queue/module@main \
-      #       --with github.com/y-l-g/scheduler/module@main \
-      #       --with github.com/y-l-g/websocket/module=./module
+      #     docker run \
+      #       --rm \
+      #       -v $PWD:/workspace \
+      #       -w /go/src/app \
+      #       -e GOTOOLCHAIN=auto \
+      #       -e XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher" \
+      #       -e XCADDY_ARGS="--with github.com/dunglas/caddy-cbrotli@main --with github.com/y-l-g/queue/module@main --with github.com/y-l-g/scheduler/module@main --with github.com/y-l-g/websocket/module=/workspace/module" \
+      #       dunglas/frankenphp:static-builder-gnu-1.11.1 \
+      #       ./build-static.sh
+      #     mv dist/frankenphp-linux-x86_64 frankenphp-linux-x86_64
+
+      - name: Build Custom FrankenPHP
+        env:
+          XCADDY_GO_BUILD_FLAGS: "-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher"
+        run: |
+          xcaddy build \
+            --output frankenphp-linux-x86_64 \
+            --with github.com/dunglas/frankenphp/caddy@main \
+            --with github.com/dunglas/caddy-cbrotli@main \
+            --with github.com/y-l-g/queue/module@main \
+            --with github.com/y-l-g/scheduler/module@main \
+            --with github.com/y-l-g/websocket/module=./module
 
       - name: Run Go Tests
         env:
