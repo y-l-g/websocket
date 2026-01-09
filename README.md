@@ -26,21 +26,27 @@ This project is highly experimental, use with caution.
 
 ### Step 1: Build the Binary
 
-Install a ZTS version of libphp and xcaddy. Then, use xcaddy to build FrankenPHP with the frankenphp-pogo module:
+#### Pre-built Binary or Docker (Recommended)
+
+You can use the pre-compiled binaries or Docker images that already include the queue module.
+
+* **Binaries:** Download from [FrankenPHP with websocket, queue, and scheduler releases](https://github.com/y-l-g/websocket/releases).
+* **Docker:** Use the [docker image](https://github.com/y-l-g?tab=packages&repo_name=websocket).
+
+#### Compile from Source
+
+If you prefer to build it yourself, follow [the instructions to install a ZTS version of libphp and `xcaddy`](https://frankenphp.dev/docs/compile/#install-php). Then, use `xcaddy` to build FrankenPHP with the `pogo-queue` module:
 
 ```bash
-CGO_CFLAGS="-D_GNU_SOURCE $(php-config --includes)" \
-CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
-XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher" \
 CGO_ENABLED=1 \
+CGO_CFLAGS=$(php-config --includes) \
+CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
 xcaddy build \
     --output frankenphp \
-    --with github.com/y-l-g/websocket/module \
+    --with github.com/y-l-g/queue/module \
     --with github.com/dunglas/frankenphp/caddy \
     --with github.com/dunglas/caddy-cbrotli
 ```
-
-You can also use the [frankenphp binary compiled with websocket, queue and scheduler](https://github.com/y-l-g/websocket/releases) or the [docker image](https://github.com/y-l-g?tab=packages&repo_name=websocket)
 
 ### Step 2: Install the Laravel Broadcast Driver
 
@@ -55,33 +61,24 @@ Configure the module within your `Caddyfile` at the root of your laravel project
 
 ```caddy
 {
-    {$CADDY_GLOBAL_OPTIONS}
-
-    admin {$CADDY_SERVER_ADMIN_HOST}:{$CADDY_SERVER_ADMIN_PORT}
-
     frankenphp {
         worker {
-            file "{$APP_PUBLIC_PATH}/frankenphp-worker.php"
-            {$CADDY_SERVER_WORKER_DIRECTIVE}
-            {$CADDY_SERVER_WATCH_DIRECTIVES}
+            file "public/frankenphp-worker.php"
         }
     }
     order pogo_websocket before php_server
 }
 
-{$CADDY_EXTRA_CONFIG}
-
-{$CADDY_SERVER_SERVER_NAME} {
+:8080 {
     log {
-        level {$CADDY_SERVER_LOG_LEVEL}
+        level info
+    }
 
-    # Redact the authorization query parameter that can be set by Mercure...
-        format filter {
-            wrap {$CADDY_SERVER_LOGGER}
-            fields {
-                uri query {
-                    replace authorization REDACTED
-                }
+    format filter {
+        wrap json
+        fields {
+            uri query {
+                replace authorization REDACTED
             }
         }
     }
@@ -90,7 +87,7 @@ Configure the module within your `Caddyfile` at the root of your laravel project
         pogo_websocket {
             app_id          pogo-app
             auth_path       /pogo/auth
-            auth_script     {$APP_PUBLIC_PATH}/websocket-worker.php
+            auth_script     public/websocket-worker.php
             webhook_secret  super-secret-key
             
             handshake_rate  100         # New connection attempts per second (Default: 100)
@@ -111,16 +108,12 @@ Configure the module within your `Caddyfile` at the root of your laravel project
     }
 
     route {
-        root * "{$APP_PUBLIC_PATH}"
+        root * public
         encode zstd br gzip
-
-        # Mercure configuration is injected here...
-        {$CADDY_SERVER_EXTRA_DIRECTIVES}
 
         php_server {
             index frankenphp-worker.php
             try_files {path} frankenphp-worker.php
-            # Required for the public/storage/ directory...
             resolve_root_symlink
         }
     }
@@ -143,6 +136,8 @@ Start octane (`frankenphp` must be compiled with `pogo`, use the `dockerfile` or
 
 ```bash
 php artisan octane:start --caddyfile=Caddyfile
+# or
+frankenphp run --caddyfile=Caddyfile
 ```
 
 ---

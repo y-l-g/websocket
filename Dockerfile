@@ -19,6 +19,10 @@ RUN CGO_ENABLED=1 \
     --with github.com/y-l-g/queue/module@main
 
 
-FROM dunglas/frankenphp:1.11.1-php8.5-trixie AS runner
+FROM serversideup/php:8.5-frankenphp-trixie
+
+USER root
 
 COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
+
+USER www-data
