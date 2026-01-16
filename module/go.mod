@@ -6,7 +6,7 @@ require (
 	github.com/alicebob/miniredis/v2 v2.35.0
 	github.com/caddyserver/caddy/v2 v2.10.2
 	github.com/dunglas/frankenphp v1.11.2-0.20260107082103-11160fb7b311
-	github.com/dunglas/frankenphp/caddy v1.11.2-0.20260107082103-11160fb7b311
+	github.com/dunglas/frankenphp/caddy v1.11.2-0.20260116171513-d9ba18fd2397
 	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.17.2
