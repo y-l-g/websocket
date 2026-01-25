@@ -9,7 +9,7 @@ require (
 	github.com/dunglas/frankenphp/caddy v1.11.2-0.20260107082103-11160fb7b311
 	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.23.2
-	github.com/redis/go-redis/v9 v9.17.2
+	github.com/redis/go-redis/v9 v9.17.3
 	github.com/sony/gobreaker/v2 v2.4.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/time v0.14.0
