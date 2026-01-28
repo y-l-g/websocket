@@ -14,7 +14,7 @@
     }
   },
   "require": {
-    "laravel/octane": "2.13.4",
+    "laravel/octane": "2.13.5",
     "pusher/pusher-php-server": "^7.2.7"
   },
   "require-dev": {
