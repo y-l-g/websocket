@@ -138,6 +138,8 @@ Start octane (`frankenphp` must be compiled with `pogo`, use the `dockerfile` or
 php artisan octane:start --caddyfile=Caddyfile
 # or
 frankenphp run --caddyfile=Caddyfile
+# or
+frankenphp run --config Caddyfile
 ```
 
 ---
