@@ -9,7 +9,7 @@ require (
 	github.com/dunglas/frankenphp/caddy v1.11.2-0.20260107082103-11160fb7b311
 	github.com/gorilla/websocket v1.5.3
 	github.com/prometheus/client_golang v1.23.2
-	github.com/redis/go-redis/v9 v9.17.2
+	github.com/redis/go-redis/v9 v9.18.0
 	github.com/sony/gobreaker/v2 v2.4.0
 	go.uber.org/zap v1.27.1
 	golang.org/x/time v0.14.0
@@ -142,6 +142,7 @@ require (
 	go.opentelemetry.io/otel/metric v1.39.0 // indirect
 	go.opentelemetry.io/otel/trace v1.39.0 // indirect
 	go.step.sm/crypto v0.75.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/automaxprocs v1.6.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap/exp v0.3.0 // indirect
