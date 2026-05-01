@@ -3,7 +3,7 @@ module github.com/y-l-g/websocket/module
 go 1.26.0
 
 require (
-	github.com/alicebob/miniredis/v2 v2.35.0
+	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/caddyserver/caddy/v2 v2.10.2
 	github.com/dunglas/frankenphp v1.12.2
 	github.com/dunglas/frankenphp/caddy v1.11.2-0.20260107082103-11160fb7b311
