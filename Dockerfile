@@ -19,7 +19,7 @@ RUN CGO_ENABLED=1 \
     --with github.com/y-l-g/queue/module@main
 
 
-FROM serversideup/php:8.5-frankenphp-trixie
+FROM serversideup/php:8.5.5-frankenphp-trixie-v4.3.5
 
 USER root
 
