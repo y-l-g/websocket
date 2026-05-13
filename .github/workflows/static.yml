@@ -39,7 +39,7 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsodium-dev libargon2-dev libonig-dev libxml2-dev
+          sudo apt-get install -y libsodium-dev libargon2-dev libonig-dev libxml2-dev libbrotli-dev
 
       - name: Install xcaddy
         run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
@@ -68,8 +68,9 @@ jobs:
         run: |
           xcaddy build \
             --output frankenphp-linux-x86_64 \
-            --with github.com/dunglas/frankenphp/caddy@main \
-            --with github.com/dunglas/caddy-cbrotli@main \
+            --with github.com/dunglas/frankenphp@v1.12.2 \
+            --with github.com/dunglas/frankenphp/caddy@v1.12.2 \
+            --with github.com/dunglas/caddy-cbrotli@v1.0.1 \
             --with github.com/y-l-g/queue/module@main \
             --with github.com/y-l-g/scheduler/module@main \
             --with github.com/y-l-g/websocket/module=./module

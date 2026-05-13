@@ -11,9 +11,9 @@ RUN CGO_ENABLED=1 \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
     xcaddy build \
     --output /usr/local/bin/frankenphp \
-    --with github.com/dunglas/frankenphp@main \
-    --with github.com/dunglas/frankenphp/caddy@main \
-    --with github.com/dunglas/caddy-cbrotli@main \
+    --with github.com/dunglas/frankenphp@v1.12.2 \
+    --with github.com/dunglas/frankenphp/caddy@v1.12.2 \
+    --with github.com/dunglas/caddy-cbrotli@v1.0.1 \
     --with github.com/y-l-g/scheduler/module@main \
     --with github.com/y-l-g/websocket/module=/websocket \
     --with github.com/y-l-g/queue/module@main
