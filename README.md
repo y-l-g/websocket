@@ -118,10 +118,6 @@ Configure the module within your `Caddyfile` at the root of your laravel project
             
             num_workers     2           # Number of PHP workers dedicated to Auth
             num_shards      8           # Internal sharding (Default: 2 * CPU Cores)
-            outbound_queue_size 256     # Per-client outbound message queue size
-            backpressure_at 32          # Slow publishes when client queues reach this depth
-            backpressure_sleep 2ms      # Backpressure polling interval
-            backpressure_max_wait 500ms # Max wait before accepting a publish anyway
             
             ping_period     54s         # Server Ping interval
             pong_wait       60s         # Client Pong timeout
@@ -190,16 +186,18 @@ For feature demonstrations, use `pogoShowcase`; this repository should only cont
 
 Prometheus metrics are available at `http://localhost:2019/metrics` (Caddy Admin):
 
+Set `POGO_WS_HOT_PATH_METRICS=true` to enable detailed per-message fanout, queue-depth, and write-duration histograms.
+
 | Metric | Type | Description |
 | :--- | :--- | :--- |
 | `pogo_websocket_connections_active` | Gauge | Active TCP connections. |
 | `pogo_websocket_messages_total` | Counter | Total messages broadcasted. |
 | `pogo_websocket_auth_failures_total` | Counter | Failed auths (labels: `concurrency_limit`, `worker_error`). |
 | `pogo_websocket_circuit_breaker_open_total` | Counter | Requests rejected by Circuit Breaker. |
-| `pogo_websocket_broker_dropped_total` | Counter | Messages dropped due to internal backpressure. |
+| `pogo_websocket_broker_dropped_messages_total` | Counter | Messages dropped due to internal backpressure. |
 | `pogo_websocket_subscriptions_total` | Counter | Total active subscriptions. |
 | `pogo_websocket_auth_duration_seconds` | Histogram | Latency of the PHP Auth Worker. |
-| `pogo_websocket_messages_dropped_total` | Counter | Messages dropped due to full client buffer. |
+| `pogo_websocket_client_dropped_messages_total` | Counter | Messages dropped due to full client buffer. |
 
 ---
 

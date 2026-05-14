@@ -10,6 +10,12 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	fanoutBackpressureThreshold = 16
+	fanoutBackpressureSleep     = time.Millisecond
+	fanoutBackpressureMaxWait   = 10 * time.Millisecond
+)
+
 type Member struct {
 	UserID   string          `json:"user_id"`
 	UserInfo json.RawMessage `json:"user_info"`
@@ -42,6 +48,8 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	if len(clients) == 0 {
 		return
 	}
+	waitForFanoutCapacity(clients)
+
 	start := time.Now()
 	if sm.metrics != nil && sm.metrics.HotPathEnabled {
 		sm.metrics.FanoutSubscribers.Observe(float64(len(clients)))
@@ -70,6 +78,26 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	for client := range clients {
 		client.Send(pm)
 	}
+}
+
+func waitForFanoutCapacity(clients map[*Client]bool) {
+	deadline := time.Now().Add(fanoutBackpressureMaxWait)
+	for maxQueueDepth(clients) >= fanoutBackpressureThreshold {
+		if time.Now().After(deadline) {
+			return
+		}
+		time.Sleep(fanoutBackpressureSleep)
+	}
+}
+
+func maxQueueDepth(clients map[*Client]bool) int {
+	maxDepth := 0
+	for client := range clients {
+		if depth := len(client.send); depth > maxDepth {
+			maxDepth = depth
+		}
+	}
+	return maxDepth
 }
 
 func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userData json.RawMessage) {

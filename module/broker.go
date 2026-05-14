@@ -18,22 +18,18 @@ type Broker interface {
 
 // MemoryBroker implements a simple in-process event bus.
 type MemoryBroker struct {
-	bus     chan *BroadcastMessage
-	ctx     context.Context
-	cancel  context.CancelFunc
-	once    sync.Once
-	logger  *zap.Logger
-	metrics *Metrics
+	bus    chan *BroadcastMessage
+	ctx    context.Context
+	cancel context.CancelFunc
+	once   sync.Once
 }
 
-func NewMemoryBroker(logger *zap.Logger, metrics *Metrics) *MemoryBroker {
+func NewMemoryBroker(_ *zap.Logger, _ *Metrics) *MemoryBroker {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &MemoryBroker{
-		bus:     make(chan *BroadcastMessage, 256),
-		ctx:     ctx,
-		cancel:  cancel,
-		logger:  logger,
-		metrics: metrics,
+		bus:    make(chan *BroadcastMessage),
+		ctx:    ctx,
+		cancel: cancel,
 	}
 }
 
@@ -43,18 +39,8 @@ func (b *MemoryBroker) Publish(ctx context.Context, msg *BroadcastMessage) error
 		return nil
 	case <-b.ctx.Done():
 		return errors.New("broker closed")
-	default:
-		// Buffer full: Record metric and error
-		if b.metrics != nil {
-			b.metrics.BrokerDropped.Inc()
-		}
-		if b.logger != nil {
-			// Rate limiting logic could be added here to prevent log spam
-			b.logger.Warn("MemoryBroker: buffer full, dropping message",
-				zap.String("channel", msg.Channel),
-				zap.String("event", msg.Event))
-		}
-		return errors.New("memory broker buffer full")
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -65,7 +51,6 @@ func (b *MemoryBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage,
 func (b *MemoryBroker) Close() error {
 	b.once.Do(func() {
 		b.cancel()
-		close(b.bus)
 	})
 	return nil
 }

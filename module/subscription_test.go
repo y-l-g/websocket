@@ -3,7 +3,9 @@ package websocket
 import (
 	"encoding/json"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
@@ -116,5 +118,69 @@ func TestMemberTracking(t *testing.T) {
 		}
 	default:
 		t.Error("C1 did not receive member_removed event")
+	}
+}
+
+func TestBroadcastToChannelWaitsForQueuedClients(t *testing.T) {
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil)
+	client := &Client{ID: "c1", send: make(chan any, fanoutBackpressureThreshold+1)}
+	for i := 0; i < fanoutBackpressureThreshold; i++ {
+		client.send <- []byte("queued")
+	}
+	sm.channels["public-test"] = map[*Client]bool{client: true}
+
+	go func() {
+		time.Sleep(2 * time.Millisecond)
+		for len(client.send) > 0 {
+			<-client.send
+		}
+	}()
+
+	start := time.Now()
+	sm.BroadcastToChannel(&BroadcastMessage{
+		Channel: "public-test",
+		Event:   "bench.event",
+		Data:    json.RawMessage(`{}`),
+	})
+
+	if elapsed := time.Since(start); elapsed < time.Millisecond {
+		t.Fatalf("Expected broadcast to wait for client queue capacity, only waited %s", elapsed)
+	}
+
+	select {
+	case msg := <-client.send:
+		if _, ok := msg.(*websocket.PreparedMessage); !ok {
+			t.Fatalf("Expected prepared broadcast message, got %T", msg)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Timed out waiting for broadcast message")
+	}
+}
+
+func TestBroadcastToChannelGivesUpOnQueuedClients(t *testing.T) {
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil)
+	client := &Client{ID: "c1", send: make(chan any, fanoutBackpressureThreshold+1)}
+	for i := 0; i < fanoutBackpressureThreshold; i++ {
+		client.send <- []byte("queued")
+	}
+	sm.channels["public-test"] = map[*Client]bool{client: true}
+
+	start := time.Now()
+	sm.BroadcastToChannel(&BroadcastMessage{
+		Channel: "public-test",
+		Event:   "bench.event",
+		Data:    json.RawMessage(`{}`),
+	})
+
+	elapsed := time.Since(start)
+	if elapsed < fanoutBackpressureMaxWait {
+		t.Fatalf("Expected broadcast to wait until max wait, only waited %s", elapsed)
+	}
+	if elapsed > 50*time.Millisecond {
+		t.Fatalf("Expected bounded wait, waited %s", elapsed)
+	}
+
+	if len(client.send) != fanoutBackpressureThreshold+1 {
+		t.Fatalf("Expected broadcast to enqueue after bounded wait, queue depth is %d", len(client.send))
 	}
 }

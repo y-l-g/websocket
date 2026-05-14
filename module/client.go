@@ -84,18 +84,12 @@ type SignInData struct {
 
 func (c *Client) Send(msg any) {
 	depth := len(c.send)
-	if c.hub != nil {
-		c.hub.recordOutboundQueueDepth(depth)
-		if c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
-			c.hub.metrics.ClientQueueDepth.Observe(float64(depth))
-		}
+	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
+		c.hub.metrics.ClientQueueDepth.Observe(float64(depth))
 	}
 
 	select {
 	case c.send <- msg:
-		if c.hub != nil {
-			c.hub.recordOutboundQueueDepth(len(c.send))
-		}
 	default:
 		if c.hub != nil && c.hub.metrics != nil {
 			c.hub.metrics.DroppedMessages.Inc()

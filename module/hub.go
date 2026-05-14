@@ -14,11 +14,7 @@ import (
 )
 
 const (
-	DefaultOutboundQueueSize          = 256
-	DefaultBackpressureThreshold      = 32
-	DefaultBackpressureSleep          = 2 * time.Millisecond
-	DefaultBackpressureMaxWait        = 500 * time.Millisecond
-	DefaultBackpressureDrainThreshold = 8
+	DefaultOutboundQueueSize = 256
 )
 
 var (
@@ -57,15 +53,9 @@ type Hub struct {
 	shards  []*HubShard
 
 	// Config
-	maxConnections                 int64
-	numShards                      int
-	activityTimeout                int // Seconds
-	backpressureThreshold          int
-	backpressureDrainThreshold     int
-	backpressureSleep              time.Duration
-	backpressureMaxWait            time.Duration
-	outboundQueueMaxObservedDepth  atomic.Int64
-	outboundQueueLastObservedDepth atomic.Int64
+	maxConnections  int64
+	numShards       int
+	activityTimeout int // Seconds
 
 	// Synchronization
 	clientsMu sync.RWMutex
@@ -85,12 +75,6 @@ type BroadcastMessage struct {
 	Data    json.RawMessage `json:"data"`
 }
 
-type HubOptions struct {
-	OutboundBackpressureThreshold int
-	OutboundBackpressureSleep     time.Duration
-	OutboundBackpressureMaxWait   time.Duration
-}
-
 type Subscription struct {
 	Client   *Client
 	Channel  string
@@ -105,10 +89,6 @@ type ClientMessageWrapper struct {
 }
 
 func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metrics, auth AuthProvider, webhook *WebhookManager, broker Broker, maxConn int, numShards int, pingPeriod time.Duration) *Hub {
-	return NewHubWithOptions(appID, logger, ctx, metrics, auth, webhook, broker, maxConn, numShards, pingPeriod, HubOptions{})
-}
-
-func NewHubWithOptions(appID string, logger *zap.Logger, ctx context.Context, metrics *Metrics, auth AuthProvider, webhook *WebhookManager, broker Broker, maxConn int, numShards int, pingPeriod time.Duration, opts HubOptions) *Hub {
 	if numShards <= 0 {
 		numShards = 32
 	}
@@ -125,43 +105,22 @@ func NewHubWithOptions(appID string, logger *zap.Logger, ctx context.Context, me
 		timeoutSec = 120
 	}
 
-	backpressureThreshold := opts.OutboundBackpressureThreshold
-	if backpressureThreshold == 0 {
-		backpressureThreshold = DefaultBackpressureThreshold
-	}
-	backpressureDrainThreshold := DefaultBackpressureDrainThreshold
-	if backpressureThreshold < backpressureDrainThreshold {
-		backpressureDrainThreshold = backpressureThreshold
-	}
-	backpressureSleep := opts.OutboundBackpressureSleep
-	if backpressureSleep == 0 {
-		backpressureSleep = DefaultBackpressureSleep
-	}
-	backpressureMaxWait := opts.OutboundBackpressureMaxWait
-	if backpressureMaxWait == 0 {
-		backpressureMaxWait = DefaultBackpressureMaxWait
-	}
-
 	h := &Hub{
-		AppID:                      appID,
-		auth:                       auth,
-		broker:                     broker,
-		logger:                     logger,
-		metrics:                    metrics,
-		ctx:                        ctx,
-		maxConnections:             int64(maxConn),
-		numShards:                  numShards,
-		activityTimeout:            timeoutSec,
-		backpressureThreshold:      backpressureThreshold,
-		backpressureDrainThreshold: backpressureDrainThreshold,
-		backpressureSleep:          backpressureSleep,
-		backpressureMaxWait:        backpressureMaxWait,
-		done:                       make(chan struct{}),
-		clientMessage:              make(chan *ClientMessageWrapper),
-		subscribe:                  make(chan *Subscription),
-		unsubscribe:                make(chan *Subscription),
-		shards:                     make([]*HubShard, numShards),
-		clients:                    make(map[*Client]bool),
+		AppID:           appID,
+		auth:            auth,
+		broker:          broker,
+		logger:          logger,
+		metrics:         metrics,
+		ctx:             ctx,
+		maxConnections:  int64(maxConn),
+		numShards:       numShards,
+		activityTimeout: timeoutSec,
+		done:            make(chan struct{}),
+		clientMessage:   make(chan *ClientMessageWrapper),
+		subscribe:       make(chan *Subscription),
+		unsubscribe:     make(chan *Subscription),
+		shards:          make([]*HubShard, numShards),
+		clients:         make(map[*Client]bool),
 	}
 
 	for i := 0; i < numShards; i++ {
@@ -252,10 +211,6 @@ func (h *Hub) Authorize(client *Client, channel string) AuthResult {
 }
 
 func (h *Hub) Publish(channel, event, data string) bool {
-	if !h.waitForOutboundCapacity() {
-		return false
-	}
-
 	if len(channel) > protocol.MaxChannelLength {
 		h.logger.Error("Hub: publish failed, channel name too long",
 			zap.String("channel", channel),
@@ -295,65 +250,6 @@ func (h *Hub) Publish(channel, event, data string) bool {
 		return false
 	}
 	return true
-}
-
-func (h *Hub) waitForOutboundCapacity() bool {
-	if h.backpressureThreshold <= 0 {
-		return true
-	}
-
-	deadline := time.Now().Add(h.backpressureMaxWait)
-	for {
-		depth := h.outboundQueueMaxObservedDepth.Load()
-		if depth < int64(h.backpressureThreshold) {
-			return true
-		}
-
-		if h.sampleOutboundQueueDepth() <= h.backpressureDrainThreshold {
-			h.outboundQueueMaxObservedDepth.Store(0)
-			return true
-		}
-
-		if !deadline.IsZero() && time.Now().After(deadline) {
-			return true
-		}
-
-		select {
-		case <-h.ctx.Done():
-			return false
-		case <-time.After(h.backpressureSleep):
-		}
-	}
-}
-
-func (h *Hub) sampleOutboundQueueDepth() int {
-	h.clientsMu.RLock()
-	defer h.clientsMu.RUnlock()
-
-	maxDepth := 0
-	for client := range h.clients {
-		depth := len(client.send)
-		if depth > maxDepth {
-			maxDepth = depth
-		}
-	}
-
-	h.outboundQueueLastObservedDepth.Store(int64(maxDepth))
-	return maxDepth
-}
-
-func (h *Hub) recordOutboundQueueDepth(depth int) {
-	h.outboundQueueLastObservedDepth.Store(int64(depth))
-
-	for {
-		current := h.outboundQueueMaxObservedDepth.Load()
-		if int64(depth) <= current {
-			return
-		}
-		if h.outboundQueueMaxObservedDepth.CompareAndSwap(current, int64(depth)) {
-			return
-		}
-	}
 }
 
 func (h *Hub) Run() {

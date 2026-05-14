@@ -213,6 +213,9 @@ function scrapePrometheusMetrics() {
       writeFailuresTotal: counterValue(samples, "pogo_websocket_write_failures_total"),
       writeFailuresPreparedTotal: counterValue(samples, "pogo_websocket_write_failures_total", { kind: "prepared" }),
       writeFailuresBytesTotal: counterValue(samples, "pogo_websocket_write_failures_total", { kind: "bytes" }),
+      dataWriteFailuresTotal:
+        counterValue(samples, "pogo_websocket_write_failures_total", { kind: "prepared" }) +
+        counterValue(samples, "pogo_websocket_write_failures_total", { kind: "bytes" }),
     },
   };
 }
@@ -335,6 +338,7 @@ export function handleSummary(data) {
         clientDroppedMessagesTotal: prometheus.derived.clientDroppedMessagesTotal,
         brokerDroppedMessagesTotal: prometheus.derived.brokerDroppedMessagesTotal,
         writeFailuresTotal: prometheus.derived.writeFailuresTotal,
+        dataWriteFailuresTotal: prometheus.derived.dataWriteFailuresTotal,
       }
     : null;
 
@@ -385,15 +389,21 @@ export function handleSummary(data) {
     metrics: data.metrics,
   };
 
-  const diagnosticLines = diagnostics
-    ? [
-        `client_queue_depth_p95=${diagnostics.clientQueueDepthP95}`,
-        `client_queue_depth_p99=${diagnostics.clientQueueDepthP99}`,
-        `prepared_write_duration_p95_ms=${diagnostics.writeDurationPreparedP95Ms}`,
-        `client_dropped_messages=${diagnostics.clientDroppedMessagesTotal}`,
-        `broker_dropped_messages=${diagnostics.brokerDroppedMessagesTotal}`,
-      ]
-    : [];
+  const diagnosticLines = [];
+  if (diagnostics) {
+    if (diagnostics.clientQueueDepthP95 != null) {
+      diagnosticLines.push(`client_queue_depth_p95=${diagnostics.clientQueueDepthP95}`);
+    }
+    if (diagnostics.clientQueueDepthP99 != null) {
+      diagnosticLines.push(`client_queue_depth_p99=${diagnostics.clientQueueDepthP99}`);
+    }
+    if (diagnostics.writeDurationPreparedP95Ms != null) {
+      diagnosticLines.push(`prepared_write_duration_p95_ms=${diagnostics.writeDurationPreparedP95Ms}`);
+    }
+    diagnosticLines.push(`client_dropped_messages=${diagnostics.clientDroppedMessagesTotal}`);
+    diagnosticLines.push(`broker_dropped_messages=${diagnostics.brokerDroppedMessagesTotal}`);
+    diagnosticLines.push(`data_write_failures=${diagnostics.dataWriteFailuresTotal}`);
+  }
 
   const outputs = {
     stdout: [
