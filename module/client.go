@@ -83,6 +83,10 @@ type SignInData struct {
 }
 
 func (c *Client) Send(msg any) {
+	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
+		c.hub.metrics.ClientQueueDepth.Observe(float64(len(c.send)))
+	}
+
 	select {
 	case c.send <- msg:
 	default:
@@ -256,39 +260,63 @@ func (c *Client) writePump() {
 		select {
 		case <-c.ctx.Done():
 			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
-			_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			c.writeMessage("close", func() error {
+				return c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+			})
 			return
 
 		case message, ok := <-c.send:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
-				_ = c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				c.writeMessage("close", func() error {
+					return c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				})
 				return
 			}
 
 			switch v := message.(type) {
 			case []byte:
-				w, err := c.conn.NextWriter(websocket.TextMessage)
-				if err != nil {
-					return
-				}
-				if _, err := w.Write(v); err != nil {
-					return
-				}
-				if err := w.Close(); err != nil {
+				if err := c.writeMessage("bytes", func() error {
+					w, err := c.conn.NextWriter(websocket.TextMessage)
+					if err != nil {
+						return err
+					}
+					if _, err := w.Write(v); err != nil {
+						return err
+					}
+					return w.Close()
+				}); err != nil {
 					return
 				}
 			case *websocket.PreparedMessage:
-				if err := c.conn.WritePreparedMessage(v); err != nil {
+				if err := c.writeMessage("prepared", func() error {
+					return c.conn.WritePreparedMessage(v)
+				}); err != nil {
 					return
 				}
 			}
 
 		case <-ticker.C:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+			if err := c.writeMessage("ping", func() error {
+				return c.conn.WriteMessage(websocket.PingMessage, nil)
+			}); err != nil {
 				return
 			}
 		}
 	}
+}
+
+func (c *Client) writeMessage(kind string, fn func() error) error {
+	start := time.Now()
+	err := fn()
+
+	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
+		c.hub.metrics.WriteDuration.WithLabelValues(kind).Observe(time.Since(start).Seconds())
+		if err != nil {
+			c.hub.metrics.WriteFailures.WithLabelValues(kind).Inc()
+		}
+	}
+
+	return err
 }

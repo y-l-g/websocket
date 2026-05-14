@@ -3,6 +3,7 @@ package websocket
 import (
 	"encoding/json"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/y-l-g/websocket/module/internal/protocol"
@@ -40,6 +41,11 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	clients := sm.GetClients(msg.Channel)
 	if len(clients) == 0 {
 		return
+	}
+	start := time.Now()
+	if sm.metrics != nil && sm.metrics.HotPathEnabled {
+		sm.metrics.FanoutSubscribers.Observe(float64(len(clients)))
+		defer sm.metrics.FanoutDuration.Observe(time.Since(start).Seconds())
 	}
 
 	payload, err := json.Marshal(map[string]interface{}{

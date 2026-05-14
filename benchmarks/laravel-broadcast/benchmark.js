@@ -11,6 +11,8 @@ const HTTP_PORT = __ENV.HTTP_PORT || "8000";
 const WS_PORT = __ENV.WS_PORT || (DRIVER === "reverb" ? "8080" : "80");
 const APP_KEY = __ENV.APP_KEY || (DRIVER === "reverb" ? "reverb-key" : "pogo-app");
 const RESULT_FILE = __ENV.RESULT_FILE || `/results/${DRIVER}-summary.json`;
+const METRICS_URL = __ENV.METRICS_URL || "";
+const METRICS_FILE = __ENV.METRICS_FILE || `/results/${DRIVER}-metrics.prom`;
 
 const VUS = parseInt(__ENV.VUS || "500", 10);
 const MSG_COUNT = parseInt(__ENV.MSG_COUNT || "100", 10);
@@ -57,6 +59,163 @@ const subscriptionsSucceeded = new Counter("subscriptions_succeeded");
 const connErrors = new Counter("conn_errors");
 const parseErrors = new Counter("parse_errors");
 const publishSuccess = new Rate("publish_success");
+
+function parseLabels(raw) {
+  const labels = {};
+  if (!raw) {
+    return labels;
+  }
+
+  raw.replace(/([^=,\s]+)="((?:\\.|[^"\\])*)"/g, (_, key, value) => {
+    labels[key] = value.replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    return "";
+  });
+
+  return labels;
+}
+
+function parsePrometheusText(text) {
+  const samples = [];
+
+  for (const line of text.split("\n")) {
+    if (!line || line[0] === "#") {
+      continue;
+    }
+
+    const match = line.match(/^([a-zA-Z_:][a-zA-Z0-9_:]*)(?:\{([^}]*)\})?\s+([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?|NaN|[+-]?Inf)/);
+    if (!match) {
+      continue;
+    }
+
+    const value = Number(match[3]);
+    if (!Number.isFinite(value)) {
+      continue;
+    }
+
+    samples.push({
+      name: match[1],
+      labels: parseLabels(match[2]),
+      value,
+    });
+  }
+
+  return samples;
+}
+
+function labelMatch(sampleLabels, wantedLabels) {
+  for (const [key, value] of Object.entries(wantedLabels || {})) {
+    if (sampleLabels[key] !== value) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+function counterValue(samples, name, labels) {
+  return samples
+    .filter((sample) => sample.name === name && labelMatch(sample.labels, labels))
+    .reduce((sum, sample) => sum + sample.value, 0);
+}
+
+function histogramSummary(samples, baseName, labels) {
+  const buckets = samples
+    .filter((sample) => sample.name === `${baseName}_bucket` && labelMatch(sample.labels, labels))
+    .map((sample) => ({
+      le: sample.labels.le === "+Inf" ? Infinity : Number(sample.labels.le),
+      value: sample.value,
+    }))
+    .filter((bucket) => Number.isFinite(bucket.le) || bucket.le === Infinity)
+    .sort((a, b) => a.le - b.le);
+
+  const count = counterValue(samples, `${baseName}_count`, labels);
+  const sum = counterValue(samples, `${baseName}_sum`, labels);
+  if (buckets.length === 0 || count === 0) {
+    return null;
+  }
+
+  const quantile = (q) => {
+    const target = count * q;
+    let previousLe = 0;
+    let previousCount = 0;
+
+    for (const bucket of buckets) {
+      if (bucket.value >= target) {
+        if (bucket.le === Infinity) {
+          return previousLe;
+        }
+
+        const bucketCount = bucket.value - previousCount;
+        if (bucketCount <= 0) {
+          return bucket.le;
+        }
+
+        const position = (target - previousCount) / bucketCount;
+        return previousLe + (bucket.le - previousLe) * position;
+      }
+
+      previousLe = bucket.le;
+      previousCount = bucket.value;
+    }
+
+    return null;
+  };
+
+  return {
+    count,
+    avg: sum / count,
+    p50: quantile(0.5),
+    p90: quantile(0.9),
+    p95: quantile(0.95),
+    p99: quantile(0.99),
+  };
+}
+
+function scrapePrometheusMetrics() {
+  if (!METRICS_URL) {
+    return {
+      scrape: { enabled: false },
+      text: "",
+      derived: null,
+    };
+  }
+
+  const res = http.get(METRICS_URL, { timeout: "5s" });
+  const scrape = {
+    enabled: true,
+    url: METRICS_URL,
+    status: res.status,
+    ok: res.status === 200,
+    bodyBytes: res.body ? res.body.length : 0,
+  };
+
+  if (res.status !== 200 || !res.body) {
+    return {
+      scrape,
+      text: res.body || "",
+      derived: null,
+    };
+  }
+
+  const samples = parsePrometheusText(res.body);
+  scrape.samples = samples.length;
+  return {
+    scrape,
+    text: res.body,
+    derived: {
+      fanoutDurationSeconds: histogramSummary(samples, "pogo_websocket_fanout_duration_seconds"),
+      fanoutSubscribers: histogramSummary(samples, "pogo_websocket_fanout_subscribers"),
+      clientQueueDepth: histogramSummary(samples, "pogo_websocket_client_queue_depth"),
+      writeDurationPreparedSeconds: histogramSummary(samples, "pogo_websocket_write_duration_seconds", { kind: "prepared" }),
+      writeDurationBytesSeconds: histogramSummary(samples, "pogo_websocket_write_duration_seconds", { kind: "bytes" }),
+      clientDroppedMessagesTotal: counterValue(samples, "pogo_websocket_client_dropped_messages_total"),
+      brokerDroppedMessagesTotal: counterValue(samples, "pogo_websocket_broker_dropped_messages_total"),
+      writeFailuresTotal: counterValue(samples, "pogo_websocket_write_failures_total"),
+      writeFailuresPreparedTotal: counterValue(samples, "pogo_websocket_write_failures_total", { kind: "prepared" }),
+      writeFailuresBytesTotal: counterValue(samples, "pogo_websocket_write_failures_total", { kind: "bytes" }),
+    },
+  };
+}
 
 export const options = {
   summaryTrendStats: ["avg", "min", "med", "max", "p(90)", "p(95)", "p(99)"],
@@ -153,6 +312,7 @@ export function publisher() {
 }
 
 export function handleSummary(data) {
+  const prometheus = scrapePrometheusMetrics();
   const count = (name) => data.metrics[name]?.values.count || 0;
   const percentile = (name, p) => data.metrics[name]?.values[p] ?? null;
   const subscribed = count("subscriptions_succeeded");
@@ -202,10 +362,14 @@ export function handleSummary(data) {
       messageP95Ms: percentile("msg_latency_ms", "p(95)"),
       publishP95Ms: percentile("publish_duration_ms", "p(95)"),
     },
+    prometheus: {
+      scrape: prometheus.scrape,
+      derived: prometheus.derived,
+    },
     metrics: data.metrics,
   };
 
-  return {
+  const outputs = {
     stdout: [
       "",
       "BENCHMARK SUMMARY",
@@ -220,9 +384,16 @@ export function handleSummary(data) {
       `schedule_is_valid=${SCHEDULE_IS_VALID}`,
       `msg_latency_p95_ms=${summary.latency.messageP95Ms}`,
       `publish_duration_p95_ms=${summary.latency.publishP95Ms}`,
+      `prometheus_metrics_ok=${prometheus.scrape.ok || false}`,
       `summary_file=${RESULT_FILE}`,
       "",
     ].join("\n"),
     [RESULT_FILE]: JSON.stringify(summary, null, 2),
   };
+
+  if (METRICS_URL) {
+    outputs[METRICS_FILE] = prometheus.text || "";
+  }
+
+  return outputs;
 }

@@ -43,7 +43,10 @@ services:
       BROADCAST_CONNECTION: pogo
       WS_APP_ID: pogo-app
       WS_APP_SECRET: super-secret-key
+      CADDY_SERVER_ADMIN_HOST: 0.0.0.0
+      CADDY_SERVER_ADMIN_PORT: 2019
       CADDY_SERVER_LOG_LEVEL: WARN
+      POGO_WS_HOT_PATH_METRICS: ${POGO_WS_HOT_PATH_METRICS:-true}
     healthcheck:
       test:
         [
@@ -121,6 +124,8 @@ services:
       HTTP_PORT: 8000
       WS_PORT: 8000
       RESULT_FILE: /results/pogo-summary.json
+      METRICS_URL: http://pogo:2019/metrics
+      METRICS_FILE: /results/pogo-metrics.prom
     volumes:
       - ./benchmark.js:/scripts/benchmark.js:ro
       - ./results:/results
