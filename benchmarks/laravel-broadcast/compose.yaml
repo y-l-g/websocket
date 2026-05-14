@@ -1,51 +1,12 @@
 name: laravel-broadcast-benchmark
 
 x-laravel-env: &laravel-env
-  APP_ENV: local
-  APP_DEBUG: false
   APP_KEY: base64:6hY9DU+7hbHF3xzXDxN+RnwQ77CYH2xEqTtnYy/tKwM=
-  AUTORUN_ENABLED: true
-  AUTORUN_LARAVEL_MIGRATION: true
-  AUTORUN_LARAVEL_MIGRATION_TIMEOUT: 60
-  AUTORUN_LARAVEL_OPTIMIZE: true
-  DB_CONNECTION: pgsql
-  DB_PORT: 5432
-  DB_DATABASE: benchmark
-  DB_USERNAME: benchmark
-  DB_PASSWORD: benchmark
-  LOG_CHANNEL: stderr
-  LOG_OUTPUT_LEVEL: warn
-  PHP_OPCACHE_ENABLE: 1
-  PHP_OPCACHE_VALIDATE_TIMESTAMPS: 0
-  PHP_SESSION_COOKIE_SECURE: 0
-  SHOW_WELCOME_MESSAGE: false
-  SSL_MODE: off
+  CACHE_STORE: array
+  QUEUE_CONNECTION: sync
+  SESSION_DRIVER: array
 
 services:
-  postgres-pogo:
-    image: postgres:18-alpine
-    environment:
-      POSTGRES_DB: benchmark
-      POSTGRES_USER: benchmark
-      POSTGRES_PASSWORD: benchmark
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U benchmark -d benchmark"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-
-  postgres-reverb:
-    image: postgres:18-alpine
-    environment:
-      POSTGRES_DB: benchmark
-      POSTGRES_USER: benchmark
-      POSTGRES_PASSWORD: benchmark
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U benchmark -d benchmark"]
-      interval: 5s
-      timeout: 5s
-      retries: 12
-
   pogo:
     build:
       context: ../..
@@ -59,25 +20,21 @@ services:
         "artisan",
         "octane:frankenphp",
         "--host=0.0.0.0",
-        "--port=80",
+        "--port=8000",
         "--caddyfile=Caddyfile",
       ]
     environment:
       <<: *laravel-env
       BROADCAST_CONNECTION: pogo
-      DB_HOST: postgres-pogo
       WS_APP_ID: pogo-app
       WS_APP_SECRET: super-secret-key
     ports:
-      - "8081:80"
-    depends_on:
-      postgres-pogo:
-        condition: service_healthy
+      - "8081:8000"
     healthcheck:
       test:
         [
           "CMD-SHELL",
-          "curl -fsS http://127.0.0.1/fire?count=0 >/dev/null || exit 1",
+          "curl -fsS http://127.0.0.1:8000/fire?count=0 >/dev/null || exit 1",
         ]
       interval: 10s
       timeout: 5s
@@ -95,7 +52,6 @@ services:
     environment:
       <<: *laravel-env
       BROADCAST_CONNECTION: reverb
-      DB_HOST: postgres-reverb
       REVERB_APP_ID: reverb-app
       REVERB_APP_KEY: reverb-key
       REVERB_APP_SECRET: reverb-secret
@@ -104,9 +60,6 @@ services:
       REVERB_SCHEME: http
     ports:
       - "8082:8000"
-    depends_on:
-      postgres-reverb:
-        condition: service_healthy
     healthcheck:
       test:
         [
@@ -127,9 +80,7 @@ services:
     command: ["php", "artisan", "reverb:start", "--host=0.0.0.0", "--port=8080"]
     environment:
       <<: *laravel-env
-      AUTORUN_ENABLED: false
       BROADCAST_CONNECTION: reverb
-      DB_HOST: postgres-reverb
       REVERB_APP_ID: reverb-app
       REVERB_APP_KEY: reverb-key
       REVERB_APP_SECRET: reverb-secret
@@ -141,8 +92,6 @@ services:
     healthcheck:
       disable: true
     depends_on:
-      postgres-reverb:
-        condition: service_healthy
       reverb-app:
         condition: service_healthy
 
@@ -153,8 +102,8 @@ services:
       DRIVER: pogo
       HTTP_HOST: pogo
       WS_HOST: pogo
-      HTTP_PORT: 80
-      WS_PORT: 80
+      HTTP_PORT: 8000
+      WS_PORT: 8000
     volumes:
       - ./benchmark.js:/scripts/benchmark.js:ro
     depends_on:

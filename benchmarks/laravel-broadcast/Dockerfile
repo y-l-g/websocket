@@ -20,16 +20,7 @@ RUN CGO_ENABLED=1 \
 
 FROM serversideup/php:8.5.6-frankenphp-trixie
 
-USER root
-
 COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git libcap2-bin unzip \
-    && install-php-extensions sockets @composer \
-    && setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/frankenphp \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/*
 
 ARG APP_PATH=benchmarks/laravel-broadcast/pogo
 
@@ -38,9 +29,6 @@ COPY --chown=www-data:www-data lib/. /lib/
 COPY --chown=www-data:www-data ${APP_PATH}/. /var/www/html/
 
 WORKDIR /var/www/html
-
-RUN mkdir -p bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs \
-    && chown -R www-data:www-data /var/www/html /composer.json /lib /config/caddy /data/caddy
 
 USER www-data
 
