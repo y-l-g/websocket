@@ -18,14 +18,35 @@ const PAYLOAD_SIZE = parseInt(__ENV.PAYLOAD_SIZE || "1024", 10);
 const PUBLISH_BATCHES = parseInt(__ENV.PUBLISH_BATCHES || "20", 10);
 const BATCH_INTERVAL_SECONDS = parseFloat(__ENV.BATCH_INTERVAL_SECONDS || "2");
 const RAMP_UP_SECONDS = parseInt(__ENV.RAMP_UP_SECONDS || "10", 10);
-const HOLD_SECONDS = parseInt(__ENV.HOLD_SECONDS || "45", 10);
 const RAMP_DOWN_SECONDS = parseInt(__ENV.RAMP_DOWN_SECONDS || "5", 10);
 const PUBLISH_START_SECONDS = parseInt(__ENV.PUBLISH_START_SECONDS || "12", 10);
+const DRAIN_SECONDS = parseInt(__ENV.DRAIN_SECONDS || "10", 10);
+const PUBLISH_WINDOW_SECONDS = Math.ceil(PUBLISH_BATCHES * BATCH_INTERVAL_SECONDS);
 const PUBLISH_MAX_DURATION_SECONDS = parseInt(
   __ENV.PUBLISH_MAX_DURATION_SECONDS ||
-    String(Math.ceil(PUBLISH_BATCHES * BATCH_INTERVAL_SECONDS + 60)),
+    String(PUBLISH_WINDOW_SECONDS + 60),
   10
 );
+const REQUIRED_LISTENER_RAMP_DOWN_START_SECONDS =
+  PUBLISH_START_SECONDS + PUBLISH_MAX_DURATION_SECONDS + DRAIN_SECONDS;
+const MIN_HOLD_SECONDS = Math.max(
+  1,
+  Math.ceil(REQUIRED_LISTENER_RAMP_DOWN_START_SECONDS - RAMP_UP_SECONDS)
+);
+const HOLD_SECONDS = parseInt(__ENV.HOLD_SECONDS || String(MIN_HOLD_SECONDS), 10);
+const PUBLISHER_COMPLETION_DEADLINE_SECONDS =
+  PUBLISH_START_SECONDS + PUBLISH_MAX_DURATION_SECONDS;
+const LISTENER_RAMP_DOWN_START_SECONDS = RAMP_UP_SECONDS + HOLD_SECONDS;
+const SCHEDULE_IS_VALID =
+  LISTENER_RAMP_DOWN_START_SECONDS >= REQUIRED_LISTENER_RAMP_DOWN_START_SECONDS;
+
+if (!SCHEDULE_IS_VALID) {
+  throw new Error(
+    `Invalid benchmark schedule: listeners start ramp-down at ${LISTENER_RAMP_DOWN_START_SECONDS}s, ` +
+      `but publisher maxDuration plus drain requires ${REQUIRED_LISTENER_RAMP_DOWN_START_SECONDS}s. ` +
+      `Increase HOLD_SECONDS or reduce PUBLISH_MAX_DURATION_SECONDS.`
+  );
+}
 
 const wsUrl = `ws://${WS_HOST}:${WS_PORT}/app/${APP_KEY}?protocol=7&client=js&version=8.4.0&flash=false`;
 
@@ -44,6 +65,7 @@ export const options = {
     publish_success: ["rate==1"],
     ws_sessions: [`count==${VUS}`],
     subscriptions_succeeded: [`count==${VUS}`],
+    http_reqs: [`count==${PUBLISH_BATCHES}`],
     conn_errors: ["count==0"],
     parse_errors: ["count==0"],
   },
@@ -134,22 +156,47 @@ export function handleSummary(data) {
   const count = (name) => data.metrics[name]?.values.count || 0;
   const percentile = (name, p) => data.metrics[name]?.values[p] ?? null;
   const subscribed = count("subscriptions_succeeded");
-  const published = Math.round(count("http_reqs") * (data.metrics.publish_success?.values.rate || 0));
+  const completedPublishBatches = count("http_reqs");
+  const published = Math.round(completedPublishBatches * (data.metrics.publish_success?.values.rate || 0));
   const observed = count("msgs_received");
-  const expected = subscribed * published * MSG_COUNT;
-  const missing = Math.max(0, expected - observed);
+  const expectedPerSuccessfulBatch = subscribed * MSG_COUNT;
+  const totalExpectedMessages = expectedPerSuccessfulBatch * published;
+  const missing = Math.max(0, totalExpectedMessages - observed);
 
   const summary = {
     driver: DRIVER,
     generatedAt: new Date().toISOString(),
-    config: { vus: VUS, msgCount: MSG_COUNT, payloadSize: PAYLOAD_SIZE, publishBatches: PUBLISH_BATCHES },
+    config: {
+      vus: VUS,
+      msgCount: MSG_COUNT,
+      payloadSize: PAYLOAD_SIZE,
+      publishBatches: PUBLISH_BATCHES,
+      batchIntervalSeconds: BATCH_INTERVAL_SECONDS,
+      rampUpSeconds: RAMP_UP_SECONDS,
+      holdSeconds: HOLD_SECONDS,
+      rampDownSeconds: RAMP_DOWN_SECONDS,
+      publishStartSeconds: PUBLISH_START_SECONDS,
+      publishWindowSeconds: PUBLISH_WINDOW_SECONDS,
+      publishMaxDurationSeconds: PUBLISH_MAX_DURATION_SECONDS,
+      drainSeconds: DRAIN_SECONDS,
+    },
+    validity: {
+      scheduleIsValid: SCHEDULE_IS_VALID,
+      listenerRampDownStartSeconds: LISTENER_RAMP_DOWN_START_SECONDS,
+      publisherCompletionDeadlineSeconds: PUBLISHER_COMPLETION_DEADLINE_SECONDS,
+      requiredListenerRampDownStartSeconds: REQUIRED_LISTENER_RAMP_DOWN_START_SECONDS,
+      allPublishBatchesCompleted: completedPublishBatches === PUBLISH_BATCHES,
+      allListenersSubscribed: subscribed === VUS,
+    },
     delivery: {
       subscribed,
+      completedPublishBatches,
       published,
-      expected,
+      expectedPerSuccessfulBatch,
+      totalExpectedMessages,
       observed,
       missing,
-      completeness: expected === 0 ? 0 : observed / expected,
+      completeness: totalExpectedMessages === 0 ? 0 : observed / totalExpectedMessages,
     },
     latency: {
       messageP95Ms: percentile("msg_latency_ms", "p(95)"),
@@ -165,10 +212,12 @@ export function handleSummary(data) {
       `driver=${summary.driver}`,
       `subscribers=${subscribed}`,
       `successful_batches=${published}`,
-      `expected_messages=${expected}`,
+      `completed_publish_batches=${completedPublishBatches}`,
+      `expected_messages=${totalExpectedMessages}`,
       `observed_messages=${observed}`,
       `missing_messages=${missing}`,
       `delivery_completeness=${summary.delivery.completeness}`,
+      `schedule_is_valid=${SCHEDULE_IS_VALID}`,
       `msg_latency_p95_ms=${summary.latency.messageP95Ms}`,
       `publish_duration_p95_ms=${summary.latency.publishP95Ms}`,
       `summary_file=${RESULT_FILE}`,
