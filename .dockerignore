@@ -4,3 +4,6 @@
 Dockerfile
 README.md
 benchmarks
+!benchmarks
+!benchmarks/laravel-broadcast
+!benchmarks/laravel-broadcast/**

@@ -18,28 +18,37 @@ RUN CGO_ENABLED=1 \
     --with github.com/y-l-g/scheduler/module@main \
     --with github.com/y-l-g/websocket/module=/websocket
 
-FROM serversideup/php:8.5.5-frankenphp-trixie-v4.3.5
+FROM serversideup/php:8.5.6-frankenphp-trixie
 
 USER root
 
 COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
-COPY --from=composer:2 /usr/bin/composer /usr/local/bin/composer
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates curl git libcap2-bin sqlite3 unzip \
-    && install-php-extensions pdo_sqlite pcntl sockets zip \
+    && apt-get install -y --no-install-recommends ca-certificates curl git libcap2-bin unzip \
+    && install-php-extensions sockets @composer \
     && setcap CAP_NET_BIND_SERVICE=+eip /usr/local/bin/frankenphp \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-ARG USER=benchmark
-ARG USER_ID=1000
-ARG GROUP_ID=1000
+ARG APP_PATH=benchmarks/laravel-broadcast/pogo
 
-RUN groupadd -g ${GROUP_ID} ${USER} \
-    && useradd -u ${USER_ID} -g ${GROUP_ID} -m ${USER} \
-    && chown -R ${USER}:${USER} /config/caddy /data/caddy
+COPY --chown=www-data:www-data composer.json /composer.json
+COPY --chown=www-data:www-data lib/. /lib/
+COPY --chown=www-data:www-data ${APP_PATH}/. /var/www/html/
 
 WORKDIR /var/www/html
 
-USER ${USER}
+RUN mkdir -p bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs \
+    && chown -R www-data:www-data /var/www/html /composer.json /lib /config/caddy /data/caddy
+
+USER www-data
+
+RUN composer install -v \
+    --no-dev \
+    --optimize-autoloader \
+    --no-scripts \
+    --prefer-dist \
+    --classmap-authoritative \
+    && rm -f bootstrap/cache/packages.php bootstrap/cache/services.php \
+    && php artisan package:discover --ansi

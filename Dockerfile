@@ -1,4 +1,4 @@
-FROM dunglas/frankenphp:1.12.2-builder-php8.5-trixie AS builder
+FROM dunglas/frankenphp:1.12.2-builder-php8.5.6-trixie AS builder
 
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
 
@@ -19,7 +19,7 @@ RUN CGO_ENABLED=1 \
     --with github.com/y-l-g/queue/module@main
 
 
-FROM serversideup/php:8.5.5-frankenphp-trixie-v4.3.5
+FROM serversideup/php:8.5.6-frankenphp-trixie
 
 USER root
 
