@@ -10,21 +10,20 @@ Path: `benchmarks/laravel-broadcast`
 
 This scenario compares two minimal Laravel 12 applications:
 
-* `pogo/`: Laravel broadcasting through `pogo/websocket`.
-* `reverb/`: Laravel broadcasting through Laravel Reverb.
+- `pogo/`: Laravel broadcasting through `pogo/websocket`.
+- `reverb/`: Laravel broadcasting through Laravel Reverb.
 
 Both apps expose the same `/fire?count=...&size=...` endpoint. The k6 script opens websocket clients, subscribes to `bench-channel`, triggers HTTP publishes, and records message delivery and latency metrics.
 
 ## Prerequisites
 
-* Docker with Compose.
+- Docker with Compose.
 
 ## Run
 
 Start the Pogo app, then run its k6 workload:
 
 ```bash
-cd benchmarks/laravel-broadcast
 docker compose up -d pogo
 docker compose run --rm k6-pogo
 ```
@@ -32,7 +31,6 @@ docker compose run --rm k6-pogo
 Start the Reverb HTTP app and websocket server, then run the matching k6 workload:
 
 ```bash
-cd benchmarks/laravel-broadcast
 docker compose up -d reverb-app reverb-ws
 docker compose run --rm k6-reverb
 ```
@@ -40,7 +38,6 @@ docker compose run --rm k6-reverb
 Clean up containers, networks, and anonymous volumes:
 
 ```bash
-cd benchmarks/laravel-broadcast
 docker compose down -v
 ```
 
@@ -58,7 +55,7 @@ The benchmark script expects the Pogo app key to be `pogo-app` and the Reverb ap
 
 ## Fairness Rules
 
-* Use the same machine, PHP version, Laravel version, payload size, and virtual user count.
-* Restart each app before a measured run.
-* Record the exact command, commit SHA, hardware, and relevant Caddy/Reverb settings with any published result.
-* Treat `module/tests/performance/k6_benchmark.js` separately; that script targets the low-level module test fixture, not the Laravel comparison apps.
+- Use the same machine, PHP version, Laravel version, payload size, and virtual user count.
+- Restart each app before a measured run.
+- Record the exact command, commit SHA, hardware, and relevant Caddy/Reverb settings with any published result.
+- Treat `module/tests/performance/k6_benchmark.js` separately; that script targets the low-level module test fixture, not the Laravel comparison apps.
