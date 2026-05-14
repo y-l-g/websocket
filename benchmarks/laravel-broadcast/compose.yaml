@@ -100,10 +100,7 @@ services:
       REVERB_SCHEME: http
     healthcheck:
       test:
-        [
-          "CMD-SHELL",
-          "php -r 'exit(@fsockopen(\"127.0.0.1\",8080) ? 0 : 1);'",
-        ]
+        ["CMD-SHELL", 'php -r ''exit(@fsockopen("127.0.0.1",8080) ? 0 : 1);''']
       interval: 5s
       timeout: 3s
       retries: 24
@@ -112,7 +109,7 @@ services:
         condition: service_healthy
 
   k6-pogo:
-    image: grafana/k6:1.4.2
+    image: grafana/k6:2.0.0
     user: "${K6_UID:-1000}:${K6_GID:-1000}"
     command: ["run", "/scripts/benchmark.js"]
     environment:
@@ -131,7 +128,7 @@ services:
         condition: service_healthy
 
   k6-reverb:
-    image: grafana/k6:1.4.2
+    image: grafana/k6:2.0.0
     user: "${K6_UID:-1000}:${K6_GID:-1000}"
     command: ["run", "/scripts/benchmark.js"]
     environment:
