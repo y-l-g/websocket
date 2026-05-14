@@ -12,30 +12,43 @@ This project is highly experimental, use with caution.
 
 ---
 
-## 🚀 Features
+## Repository Layout
+
+This repository is intentionally limited to the websocket extension and its package-level validation:
+
+* `module/`: the Go/Caddy/FrankenPHP websocket module.
+* `lib/`: the Laravel broadcasting driver.
+* `module/tests/`: module unit, integration, and low-level performance tests.
+* `benchmarks/`: reproducible benchmark harnesses used to validate performance claims.
+
+Full application showcases belong in `pogoShowcase`. Keep this repository focused on code that ships with, tests, or measures the websocket package.
+
+---
+
+## Features
 
 * **Pusher Protocol v7 Compliant:** Supports Private & Presence channels, and User Authentication.
-* **High Performance:** Benchmarked at **550+ messages/sec** with sub-10ms latency on minimal hardware.
+* **High Performance:** Benchmarked at **550+ messages/sec** with sub-10ms latency on minimal hardware. See [`benchmarks/`](benchmarks/) for the reproducible harness.
 * **Zero-Copy Broadcasts:** Optimizes CPU usage by encoding messages once for thousands of clients.
 * **DoS Protection:** Built-in Token Bucket Rate Limiting, Handshake Throttling, and Circuit Breakers for PHP Auth.
 * **Horizontal Scaling:** Redis Pub/Sub support for multi-node clusters.
 
 ---
 
-## 📦 Installation
+## Installation
 
 ### Step 1: Build the Binary
 
 #### Pre-built Binary or Docker (Recommended)
 
-You can use the pre-compiled binaries or Docker images that already include the queue module.
+You can use the pre-compiled binaries or Docker images that already include the websocket, queue, and scheduler modules.
 
 * **Binaries:** Download from [FrankenPHP with websocket, queue, and scheduler releases](https://github.com/y-l-g/websocket/releases).
 * **Docker:** Use the [docker image](https://github.com/y-l-g?tab=packages&repo_name=websocket).
 
 #### Compile from Source
 
-If you prefer to build it yourself, follow [the instructions to install a ZTS version of libphp and `xcaddy`](https://frankenphp.dev/docs/compile/#install-php). Then, use `xcaddy` to build FrankenPHP with the `pogo-queue` module:
+If you prefer to build it yourself, follow [the instructions to install a ZTS version of libphp and `xcaddy`](https://frankenphp.dev/docs/compile/#install-php). Then, use `xcaddy` to build FrankenPHP with the Pogo WebSocket module:
 
 ```bash
 CGO_ENABLED=1 \
@@ -43,7 +56,7 @@ CGO_CFLAGS=$(php-config --includes) \
 CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
 xcaddy build \
     --output frankenphp \
-    --with github.com/y-l-g/queue/module \
+    --with github.com/y-l-g/websocket/module \
     --with github.com/dunglas/frankenphp/caddy \
     --with github.com/dunglas/caddy-cbrotli
 ```
@@ -55,7 +68,7 @@ composer require pogo/websocket
 php artisan pogo:ws-install
 ```
 
-## ⚙️ Configuration
+## Configuration
 
 Configure the module within your `Caddyfile` at the root of your laravel project (this exemple is an adapted copy of the octane Caddyfile, it will work with `php artisan octane:frankenphp --caddyfile=Caddyfile`).
 
@@ -144,7 +157,15 @@ frankenphp run --config Caddyfile
 
 ---
 
-## 📊 Metrics
+## Benchmarks
+
+Benchmark fixtures live in [`benchmarks/`](benchmarks/), not `examples/`, because they are maintained as measurement tools rather than tutorials. The Laravel broadcast scenario compares Pogo WebSocket and Laravel Reverb with the same event publisher and k6 listener workload.
+
+For feature demonstrations, use `pogoShowcase`; this repository should only contain minimal examples when they directly document package usage.
+
+---
+
+## Metrics
 
 Prometheus metrics are available at `http://localhost:2019/metrics` (Caddy Admin):
 
@@ -161,7 +182,7 @@ Prometheus metrics are available at `http://localhost:2019/metrics` (Caddy Admin
 
 ---
 
-## 🛠 Troubleshooting
+## Troubleshooting
 
 * **4100 Over Capacity:** Increase `max_connections` in Caddyfile.
 * **4009 Connection Unauthorized:** Check `webhook_secret` matches `WS_APP_SECRET`.
