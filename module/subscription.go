@@ -71,16 +71,47 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	}
 
 	pm, err := websocket.NewPreparedMessage(websocket.TextMessage, payload)
+	sentAtMs := 0.0
+	if sm.metrics != nil && sm.metrics.HotPathEnabled {
+		sentAtMs = benchmarkPayloadSentAt(msg.Data)
+	}
 	if err != nil {
 		sm.logger.Error("PreparedMessage error", zap.Error(err))
 		for client := range clients {
-			client.Send(payload)
+			client.Send(wrapBenchmarkOutbound(payload, sentAtMs))
 		}
 		return
 	}
 
 	for client := range clients {
-		client.Send(pm)
+		client.Send(wrapBenchmarkOutbound(pm, sentAtMs))
+	}
+}
+
+func benchmarkPayloadSentAt(data json.RawMessage) float64 {
+	var payload struct {
+		ID        *int    `json:"id"`
+		Size      *int    `json:"size"`
+		CreatedAt float64 `json:"createdAt"`
+		SentAt    float64 `json:"sentAt"`
+		Payload   *string `json:"payload"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return 0
+	}
+	if payload.ID == nil || payload.Size == nil || payload.Payload == nil || payload.CreatedAt <= 0 || payload.SentAt <= 0 {
+		return 0
+	}
+	return payload.SentAt
+}
+
+func wrapBenchmarkOutbound(payload any, sentAtMs float64) any {
+	if sentAtMs <= 0 {
+		return payload
+	}
+	return benchmarkOutboundMessage{
+		payload:  payload,
+		sentAtMs: sentAtMs,
 	}
 }
 

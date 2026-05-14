@@ -215,6 +215,7 @@ function scrapePrometheusMetrics() {
       publishTotalSeconds: histogramSummary(samples, "pogo_websocket_publish_duration_seconds", { phase: "total" }),
       brokerToHubDelaySeconds: histogramSummary(samples, "pogo_websocket_broker_to_hub_delay_seconds"),
       hubToShardDelaySeconds: histogramSummary(samples, "pogo_websocket_hub_to_shard_delay_seconds"),
+      writeCompleteFromSentSeconds: histogramSummary(samples, "pogo_websocket_write_complete_to_payload_sent_seconds"),
       clientQueueDepth: histogramSummary(samples, "pogo_websocket_client_queue_depth"),
       clientQueueResidenceSeconds: histogramSummary(samples, "pogo_websocket_client_queue_residence_seconds"),
       writeDurationPreparedSeconds: histogramSummary(samples, "pogo_websocket_write_duration_seconds", { kind: "prepared" }),
@@ -374,6 +375,9 @@ export function handleSummary(data) {
         hubToShardDelayP95Ms: prometheus.derived.hubToShardDelaySeconds?.p95 == null
           ? null
           : prometheus.derived.hubToShardDelaySeconds.p95 * 1000,
+        writeCompleteFromSentP95Ms: prometheus.derived.writeCompleteFromSentSeconds?.p95 == null
+          ? null
+          : prometheus.derived.writeCompleteFromSentSeconds.p95 * 1000,
         clientQueueDepthP95: prometheus.derived.clientQueueDepth?.p95 ?? null,
         clientQueueDepthP99: prometheus.derived.clientQueueDepth?.p99 ?? null,
         clientQueueResidenceP95Ms: prometheus.derived.clientQueueResidenceSeconds?.p95 == null
@@ -478,6 +482,9 @@ export function handleSummary(data) {
     }
     if (diagnostics.hubToShardDelayP95Ms != null) {
       diagnosticLines.push(`hub_to_shard_p95_ms=${diagnostics.hubToShardDelayP95Ms}`);
+    }
+    if (diagnostics.writeCompleteFromSentP95Ms != null) {
+      diagnosticLines.push(`write_complete_from_sent_p95_ms=${diagnostics.writeCompleteFromSentP95Ms}`);
     }
     if (diagnostics.clientQueueResidenceP95Ms != null) {
       diagnosticLines.push(`client_queue_residence_p95_ms=${diagnostics.clientQueueResidenceP95Ms}`);

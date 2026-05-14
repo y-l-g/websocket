@@ -248,7 +248,9 @@ func (h *Hub) publish(channel, event, data string, entryAt time.Time) bool {
 	if hotPath {
 		h.metrics.PublishDuration.WithLabelValues("validate").Observe(time.Since(validateStart).Seconds())
 		observePhpToGoEntryDelay(h.metrics, data, entryAt)
-		defer h.metrics.PublishDuration.WithLabelValues("total").Observe(time.Since(totalStart).Seconds())
+		defer func() {
+			h.metrics.PublishDuration.WithLabelValues("total").Observe(time.Since(totalStart).Seconds())
+		}()
 	}
 
 	h.metrics.Messages.Inc()

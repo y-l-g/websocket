@@ -27,6 +27,7 @@ type Metrics struct {
 	ClientQueueResidence   prometheus.Histogram
 	WriteDuration          *prometheus.HistogramVec
 	WriteTotalDuration     *prometheus.HistogramVec
+	WriteCompleteFromSent  prometheus.Histogram
 	WriteFailures          *prometheus.CounterVec
 	HotPathEnabled         bool
 }
@@ -141,6 +142,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help:      "Duration spent setting write deadline and writing websocket messages by message kind",
 			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
 		}, []string{"kind"}),
+		WriteCompleteFromSent: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "pogo_websocket",
+			Name:      "write_complete_to_payload_sent_seconds",
+			Help:      "Time from benchmark payload sentAt timestamp to successful websocket write completion",
+			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 18),
+		}),
 		WriteFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "pogo_websocket",
 			Name:      "write_failures_total",
@@ -168,6 +175,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		_ = reg.Register(m.ClientQueueResidence)
 		_ = reg.Register(m.WriteDuration)
 		_ = reg.Register(m.WriteTotalDuration)
+		_ = reg.Register(m.WriteCompleteFromSent)
 		_ = reg.Register(m.WriteFailures)
 	}
 

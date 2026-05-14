@@ -14,9 +14,13 @@ import (
 
 type MockBroker struct {
 	published chan *BroadcastMessage
+	delay     time.Duration
 }
 
 func (m *MockBroker) Publish(ctx context.Context, msg *BroadcastMessage) error {
+	if m.delay > 0 {
+		time.Sleep(m.delay)
+	}
 	if m.published != nil {
 		m.published <- msg
 	}
@@ -73,7 +77,7 @@ func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 	defer cancel()
 
 	metrics := NewMetrics(prometheus.NewRegistry())
-	broker := &MockBroker{published: make(chan *BroadcastMessage, 1)}
+	broker := &MockBroker{published: make(chan *BroadcastMessage, 1), delay: 5 * time.Millisecond}
 	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, broker, 10000, 1, DefaultPingPeriod)
 
 	phpBroadcastAt := float64(time.Now().Add(-time.Millisecond).UnixNano()) / float64(time.Millisecond)
@@ -100,6 +104,11 @@ func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 	}
 	if count := metricCount(t, metrics.PublishDuration.WithLabelValues("broker")); count != 1 {
 		t.Fatalf("Expected publish broker count 1, got %d", count)
+	}
+	totalSum := metricHistogramSum(t, metrics.PublishDuration.WithLabelValues("total"))
+	brokerSum := metricHistogramSum(t, metrics.PublishDuration.WithLabelValues("broker"))
+	if totalSum < brokerSum {
+		t.Fatalf("Expected publish total duration %.9f to be >= broker duration %.9f", totalSum, brokerSum)
 	}
 	if count := metricCount(t, metrics.PhpToGoEntryDelay); count != 1 {
 		t.Fatalf("Expected php-to-go entry count 1, got %d", count)
@@ -199,6 +208,27 @@ func metricCount(t *testing.T, metric prometheus.Observer) uint64 {
 	}
 
 	t.Fatalf("Unsupported metric type: %T", metric)
+	return 0
+}
+
+func metricHistogramSum(t *testing.T, metric prometheus.Observer) float64 {
+	t.Helper()
+
+	promMetric, ok := metric.(prometheus.Metric)
+	if !ok {
+		t.Fatalf("Metric does not implement prometheus.Metric: %T", metric)
+	}
+
+	var dtoMetric dto.Metric
+	if err := promMetric.Write(&dtoMetric); err != nil {
+		t.Fatalf("Metric write failed: %v", err)
+	}
+
+	if histogram := dtoMetric.GetHistogram(); histogram != nil {
+		return histogram.GetSampleSum()
+	}
+
+	t.Fatalf("Metric is not a histogram: %T", metric)
 	return 0
 }
 

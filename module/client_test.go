@@ -278,3 +278,87 @@ func TestClient_WriteOutboundBurstDrainsQueuedMessagesUnderOneDeadline(t *testin
 		}
 	}
 }
+
+func TestClientWriteCompleteFromSentMetricRecordsBenchmarkMessages(t *testing.T) {
+	t.Setenv("POGO_WS_HOT_PATH_METRICS", "true")
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	client := &Client{
+		ID:        "test-client-write-complete",
+		hub:       &Hub{metrics: metrics},
+		conn:      NewMockWSConnection(),
+		send:      make(chan any, 1),
+		WriteWait: time.Second,
+	}
+
+	sentAtMs := float64(time.Now().Add(-time.Millisecond).UnixNano()) / float64(time.Millisecond)
+	msg := benchmarkOutboundMessage{
+		payload:  []byte("payload"),
+		sentAtMs: sentAtMs,
+	}
+
+	if err := client.writeQueuedOutbound(msg, time.Now(), true); err != nil {
+		t.Fatalf("writeQueuedOutbound failed: %v", err)
+	}
+
+	if count := metricCount(t, metrics.WriteCompleteFromSent); count != 1 {
+		t.Fatalf("Expected write-complete count 1, got %d", count)
+	}
+}
+
+func TestClientWriteCompleteFromSentMetricRequiresHotPathAndTimestamp(t *testing.T) {
+	metrics := NewMetrics(prometheus.NewRegistry())
+	client := &Client{
+		ID:        "test-client-no-write-complete",
+		hub:       &Hub{metrics: metrics},
+		conn:      NewMockWSConnection(),
+		send:      make(chan any, 1),
+		WriteWait: time.Second,
+	}
+
+	sentAtMs := float64(time.Now().Add(-time.Millisecond).UnixNano()) / float64(time.Millisecond)
+	if err := client.writeQueuedOutbound(benchmarkOutboundMessage{payload: []byte("payload"), sentAtMs: sentAtMs}, time.Now(), true); err != nil {
+		t.Fatalf("writeQueuedOutbound failed: %v", err)
+	}
+	if count := metricCount(t, metrics.WriteCompleteFromSent); count != 0 {
+		t.Fatalf("Expected disabled hot-path write-complete count 0, got %d", count)
+	}
+
+	t.Setenv("POGO_WS_HOT_PATH_METRICS", "true")
+	metrics = NewMetrics(prometheus.NewRegistry())
+	client.hub.metrics = metrics
+
+	if err := client.writeQueuedOutbound([]byte("payload"), time.Now(), true); err != nil {
+		t.Fatalf("writeQueuedOutbound failed: %v", err)
+	}
+	if count := metricCount(t, metrics.WriteCompleteFromSent); count != 0 {
+		t.Fatalf("Expected non-benchmark write-complete count 0, got %d", count)
+	}
+}
+
+func TestBenchmarkPayloadSentAtDetection(t *testing.T) {
+	sentAt := 1234.5
+	data, err := json.Marshal(map[string]any{
+		"id":        1,
+		"size":      10,
+		"createdAt": 1234.0,
+		"sentAt":    sentAt,
+		"payload":   "XXXXXXXXXX",
+	})
+	if err != nil {
+		t.Fatalf("Marshal failed: %v", err)
+	}
+
+	if got := benchmarkPayloadSentAt(data); got != sentAt {
+		t.Fatalf("Expected sentAt %v, got %v", sentAt, got)
+	}
+
+	for _, data := range []json.RawMessage{
+		json.RawMessage(`{"sentAt":1234.5}`),
+		json.RawMessage(`not-json`),
+	} {
+		if got := benchmarkPayloadSentAt(data); got != 0 {
+			t.Fatalf("Expected non-benchmark sentAt 0, got %v", got)
+		}
+	}
+}
