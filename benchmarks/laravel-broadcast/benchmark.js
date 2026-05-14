@@ -53,6 +53,9 @@ if (!SCHEDULE_IS_VALID) {
 const wsUrl = `ws://${WS_HOST}:${WS_PORT}/app/${APP_KEY}?protocol=7&client=js&version=8.4.0&flash=false`;
 
 const msgLatencyMs = new Trend("msg_latency_ms");
+const eventCreatedToReceivedMs = new Trend("event_created_to_received_ms");
+const eventSentToReceivedMs = new Trend("event_sent_to_received_ms");
+const pogoPhpBroadcastToReceivedMs = new Trend("pogo_php_broadcast_to_received_ms");
 const publishDurationMs = new Trend("publish_duration_ms");
 const msgsReceived = new Counter("msgs_received");
 const subscriptionsSucceeded = new Counter("subscriptions_succeeded");
@@ -206,6 +209,12 @@ function scrapePrometheusMetrics() {
       fanoutDurationSeconds: histogramSummary(samples, "pogo_websocket_fanout_duration_seconds"),
       fanoutBackpressureWaitSeconds: histogramSummary(samples, "pogo_websocket_fanout_backpressure_wait_seconds"),
       fanoutSubscribers: histogramSummary(samples, "pogo_websocket_fanout_subscribers"),
+      phpToGoEntryDelaySeconds: histogramSummary(samples, "pogo_websocket_php_to_go_entry_delay_seconds"),
+      publishValidateSeconds: histogramSummary(samples, "pogo_websocket_publish_duration_seconds", { phase: "validate" }),
+      publishBrokerSeconds: histogramSummary(samples, "pogo_websocket_publish_duration_seconds", { phase: "broker" }),
+      publishTotalSeconds: histogramSummary(samples, "pogo_websocket_publish_duration_seconds", { phase: "total" }),
+      brokerToHubDelaySeconds: histogramSummary(samples, "pogo_websocket_broker_to_hub_delay_seconds"),
+      hubToShardDelaySeconds: histogramSummary(samples, "pogo_websocket_hub_to_shard_delay_seconds"),
       clientQueueDepth: histogramSummary(samples, "pogo_websocket_client_queue_depth"),
       clientQueueResidenceSeconds: histogramSummary(samples, "pogo_websocket_client_queue_residence_seconds"),
       writeDurationPreparedSeconds: histogramSummary(samples, "pogo_websocket_write_duration_seconds", { kind: "prepared" }),
@@ -288,7 +297,18 @@ export function listener() {
 
       try {
         const payload = JSON.parse(msg.data);
-        msgLatencyMs.add(Math.max(0, Date.now() - payload.sentAt));
+        const receivedAt = Date.now();
+        if (Number.isFinite(payload.createdAt)) {
+          eventCreatedToReceivedMs.add(Math.max(0, receivedAt - payload.createdAt));
+        }
+        if (Number.isFinite(payload.sentAt)) {
+          const sentToReceived = Math.max(0, receivedAt - payload.sentAt);
+          eventSentToReceivedMs.add(sentToReceived);
+          msgLatencyMs.add(sentToReceived);
+        }
+        if (Number.isFinite(payload.pogoPhpBroadcastAt)) {
+          pogoPhpBroadcastToReceivedMs.add(Math.max(0, receivedAt - payload.pogoPhpBroadcastAt));
+        }
         msgsReceived.add(1);
       } catch (_) {
         parseErrors.add(1);
@@ -339,6 +359,21 @@ export function handleSummary(data) {
         fanoutBackpressureWaitP95Ms: prometheus.derived.fanoutBackpressureWaitSeconds?.p95 == null
           ? null
           : prometheus.derived.fanoutBackpressureWaitSeconds.p95 * 1000,
+        phpToGoEntryDelayP95Ms: prometheus.derived.phpToGoEntryDelaySeconds?.p95 == null
+          ? null
+          : prometheus.derived.phpToGoEntryDelaySeconds.p95 * 1000,
+        publishTotalP95Ms: prometheus.derived.publishTotalSeconds?.p95 == null
+          ? null
+          : prometheus.derived.publishTotalSeconds.p95 * 1000,
+        publishBrokerP95Ms: prometheus.derived.publishBrokerSeconds?.p95 == null
+          ? null
+          : prometheus.derived.publishBrokerSeconds.p95 * 1000,
+        brokerToHubDelayP95Ms: prometheus.derived.brokerToHubDelaySeconds?.p95 == null
+          ? null
+          : prometheus.derived.brokerToHubDelaySeconds.p95 * 1000,
+        hubToShardDelayP95Ms: prometheus.derived.hubToShardDelaySeconds?.p95 == null
+          ? null
+          : prometheus.derived.hubToShardDelaySeconds.p95 * 1000,
         clientQueueDepthP95: prometheus.derived.clientQueueDepth?.p95 ?? null,
         clientQueueDepthP99: prometheus.derived.clientQueueDepth?.p99 ?? null,
         clientQueueResidenceP95Ms: prometheus.derived.clientQueueResidenceSeconds?.p95 == null
@@ -400,7 +435,15 @@ export function handleSummary(data) {
     },
     latency: {
       messageP95Ms: percentile("msg_latency_ms", "p(95)"),
+      messageP99Ms: percentile("msg_latency_ms", "p(99)"),
+      eventCreatedToReceivedP95Ms: percentile("event_created_to_received_ms", "p(95)"),
+      eventCreatedToReceivedP99Ms: percentile("event_created_to_received_ms", "p(99)"),
+      eventSentToReceivedP95Ms: percentile("event_sent_to_received_ms", "p(95)"),
+      eventSentToReceivedP99Ms: percentile("event_sent_to_received_ms", "p(99)"),
+      pogoPhpBroadcastToReceivedP95Ms: percentile("pogo_php_broadcast_to_received_ms", "p(95)"),
+      pogoPhpBroadcastToReceivedP99Ms: percentile("pogo_php_broadcast_to_received_ms", "p(99)"),
       publishP95Ms: percentile("publish_duration_ms", "p(95)"),
+      publishP99Ms: percentile("publish_duration_ms", "p(99)"),
     },
     prometheus: {
       scrape: prometheus.scrape,
@@ -420,6 +463,21 @@ export function handleSummary(data) {
     }
     if (diagnostics.fanoutBackpressureWaitP95Ms != null) {
       diagnosticLines.push(`fanout_backpressure_wait_p95_ms=${diagnostics.fanoutBackpressureWaitP95Ms}`);
+    }
+    if (diagnostics.phpToGoEntryDelayP95Ms != null) {
+      diagnosticLines.push(`php_to_go_entry_delay_p95_ms=${diagnostics.phpToGoEntryDelayP95Ms}`);
+    }
+    if (diagnostics.publishTotalP95Ms != null) {
+      diagnosticLines.push(`publish_total_p95_ms=${diagnostics.publishTotalP95Ms}`);
+    }
+    if (diagnostics.publishBrokerP95Ms != null) {
+      diagnosticLines.push(`publish_broker_p95_ms=${diagnostics.publishBrokerP95Ms}`);
+    }
+    if (diagnostics.brokerToHubDelayP95Ms != null) {
+      diagnosticLines.push(`broker_to_hub_p95_ms=${diagnostics.brokerToHubDelayP95Ms}`);
+    }
+    if (diagnostics.hubToShardDelayP95Ms != null) {
+      diagnosticLines.push(`hub_to_shard_p95_ms=${diagnostics.hubToShardDelayP95Ms}`);
     }
     if (diagnostics.clientQueueResidenceP95Ms != null) {
       diagnosticLines.push(`client_queue_residence_p95_ms=${diagnostics.clientQueueResidenceP95Ms}`);
@@ -455,6 +513,9 @@ export function handleSummary(data) {
       `delivery_completeness=${summary.delivery.completeness}`,
       `schedule_is_valid=${SCHEDULE_IS_VALID}`,
       `msg_latency_p95_ms=${summary.latency.messageP95Ms}`,
+      `event_created_to_received_p95_ms=${summary.latency.eventCreatedToReceivedP95Ms}`,
+      `event_sent_to_received_p95_ms=${summary.latency.eventSentToReceivedP95Ms}`,
+      `pogo_php_broadcast_to_received_p95_ms=${summary.latency.pogoPhpBroadcastToReceivedP95Ms}`,
       `publish_duration_p95_ms=${summary.latency.publishP95Ms}`,
       `prometheus_metrics_ok=${prometheus.scrape.ok || false}`,
       ...diagnosticLines,

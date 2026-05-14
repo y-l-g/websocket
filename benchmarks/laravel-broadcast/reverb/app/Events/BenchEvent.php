@@ -15,10 +15,12 @@ class BenchEvent implements ShouldBroadcastNow
     use SerializesModels;
 
     public $payload;
+    public $createdAt;
     public $sentAt;
 
     public function __construct(public int $id, public int $size = 100)
     {
+        $this->createdAt = microtime(true) * 1000; // Milliseconds
         $this->sentAt = microtime(true) * 1000; // Milliseconds
         $this->payload = str_repeat('X', $size); // Generate load
     }
@@ -31,5 +33,16 @@ class BenchEvent implements ShouldBroadcastNow
     public function broadcastAs()
     {
         return 'bench.event';
+    }
+
+    public function broadcastWith()
+    {
+        return [
+            'id' => $this->id,
+            'size' => $this->size,
+            'createdAt' => $this->createdAt,
+            'sentAt' => $this->sentAt,
+            'payload' => $this->payload,
+        ];
     }
 }

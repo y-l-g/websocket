@@ -100,4 +100,50 @@ class BroadcasterTest extends TestCase
         $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
         $this->assertTrue(true);
     }
+
+    public function testBenchmarkPayloadReceivesPogoPhpBroadcastTimestamp()
+    {
+        $broadcaster = new class(['app_id' => 'test-app']) extends Broadcaster {
+            /**
+             * @param array<mixed> $payload
+             * @return string|false
+             */
+            public function encodeForTest(array $payload)
+            {
+                return $this->encodeBroadcastPayload($payload);
+            }
+        };
+
+        $payloadJson = $broadcaster->encodeForTest([
+            'id' => 1,
+            'size' => 10,
+            'createdAt' => 1000.0,
+            'sentAt' => 1001.0,
+            'payload' => 'XXXXXXXXXX',
+        ]);
+
+        $this->assertIsString($payloadJson);
+        $payload = json_decode($payloadJson, true);
+        $this->assertArrayHasKey('pogoPhpBroadcastAt', $payload);
+        $this->assertIsFloat($payload['pogoPhpBroadcastAt']);
+    }
+
+    public function testNonBenchmarkAndFailedPayloadEncodingKeepExistingBehavior()
+    {
+        $broadcaster = new class(['app_id' => 'test-app']) extends Broadcaster {
+            /**
+             * @param array<mixed> $payload
+             * @return string|false
+             */
+            public function encodeForTest(array $payload)
+            {
+                return $this->encodeBroadcastPayload($payload);
+            }
+        };
+
+        $payloadJson = $broadcaster->encodeForTest(['foo' => 'bar']);
+        $this->assertSame(['foo' => 'bar'], json_decode((string) $payloadJson, true));
+
+        $this->assertFalse($broadcaster->encodeForTest(['invalid' => INF]));
+    }
 }

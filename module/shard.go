@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -15,6 +16,7 @@ type HubShard struct {
 	clientMsg   chan *ClientMessageWrapper
 	cleanup     chan *Client
 	logger      *zap.Logger
+	metrics     *Metrics
 	ctx         context.Context
 }
 
@@ -28,6 +30,7 @@ func NewHubShard(id int, logger *zap.Logger, ctx context.Context, metrics *Metri
 		clientMsg:   make(chan *ClientMessageWrapper),
 		cleanup:     make(chan *Client),
 		logger:      logger,
+		metrics:     metrics,
 		ctx:         ctx,
 	}
 }
@@ -46,6 +49,15 @@ func (s *HubShard) Run() {
 			s.subs.Unsubscribe(sub.Client, sub.Channel)
 
 		case msg := <-s.broadcast:
+			if s.metrics != nil && s.metrics.HotPathEnabled && !msg.BrokerReceivedAt.IsZero() {
+				now := time.Now()
+				delay := now.Sub(msg.BrokerReceivedAt)
+				if delay < 0 {
+					delay = 0
+				}
+				s.metrics.HubToShardDelay.Observe(delay.Seconds())
+				msg.ShardBroadcastAt = now
+			}
 			s.subs.BroadcastToChannel(msg)
 
 		case cMsg := <-s.clientMsg:

@@ -70,9 +70,12 @@ type Hub struct {
 }
 
 type BroadcastMessage struct {
-	Channel string          `json:"channel"`
-	Event   string          `json:"event"`
-	Data    json.RawMessage `json:"data"`
+	Channel           string          `json:"channel"`
+	Event             string          `json:"event"`
+	Data              json.RawMessage `json:"data"`
+	InternalCreatedAt time.Time       `json:"-"`
+	BrokerReceivedAt  time.Time       `json:"-"`
+	ShardBroadcastAt  time.Time       `json:"-"`
 }
 
 type Subscription struct {
@@ -211,6 +214,14 @@ func (h *Hub) Authorize(client *Client, channel string) AuthResult {
 }
 
 func (h *Hub) Publish(channel, event, data string) bool {
+	return h.publish(channel, event, data, time.Now())
+}
+
+func (h *Hub) publish(channel, event, data string, entryAt time.Time) bool {
+	totalStart := time.Now()
+	validateStart := totalStart
+	hotPath := h.metrics != nil && h.metrics.HotPathEnabled
+
 	if len(channel) > protocol.MaxChannelLength {
 		h.logger.Error("Hub: publish failed, channel name too long",
 			zap.String("channel", channel),
@@ -234,22 +245,53 @@ func (h *Hub) Publish(channel, event, data string) bool {
 		return false
 	}
 
+	if hotPath {
+		h.metrics.PublishDuration.WithLabelValues("validate").Observe(time.Since(validateStart).Seconds())
+		observePhpToGoEntryDelay(h.metrics, data, entryAt)
+		defer h.metrics.PublishDuration.WithLabelValues("total").Observe(time.Since(totalStart).Seconds())
+	}
+
 	h.metrics.Messages.Inc()
 
 	raw := json.RawMessage(data)
 
 	msg := &BroadcastMessage{
-		Channel: channel,
-		Event:   event,
-		Data:    raw,
+		Channel:           channel,
+		Event:             event,
+		Data:              raw,
+		InternalCreatedAt: time.Now(),
 	}
 
+	brokerStart := time.Now()
 	err := h.broker.Publish(h.ctx, msg)
+	if hotPath {
+		h.metrics.PublishDuration.WithLabelValues("broker").Observe(time.Since(brokerStart).Seconds())
+	}
 	if err != nil {
 		h.logger.Error("Hub: broker publish failed", zap.Error(err))
 		return false
 	}
 	return true
+}
+
+func observePhpToGoEntryDelay(metrics *Metrics, data string, entryAt time.Time) {
+	if metrics == nil || !metrics.HotPathEnabled {
+		return
+	}
+
+	var payload struct {
+		PogoPhpBroadcastAt float64 `json:"pogoPhpBroadcastAt"`
+	}
+	if err := json.Unmarshal([]byte(data), &payload); err != nil || payload.PogoPhpBroadcastAt <= 0 {
+		return
+	}
+
+	phpBroadcastAt := time.Unix(0, int64(payload.PogoPhpBroadcastAt*float64(time.Millisecond)))
+	delay := entryAt.Sub(phpBroadcastAt)
+	if delay < 0 {
+		delay = 0
+	}
+	metrics.PhpToGoEntryDelay.Observe(delay.Seconds())
 }
 
 func (h *Hub) Run() {
@@ -265,6 +307,17 @@ func (h *Hub) Run() {
 		select {
 		case msg := <-brokerStream:
 			if msg != nil {
+				if h.metrics != nil && h.metrics.HotPathEnabled {
+					now := time.Now()
+					if !msg.InternalCreatedAt.IsZero() {
+						delay := now.Sub(msg.InternalCreatedAt)
+						if delay < 0 {
+							delay = 0
+						}
+						h.metrics.BrokerToHubDelay.Observe(delay.Seconds())
+					}
+					msg.BrokerReceivedAt = now
+				}
 				shard := h.getShard(msg.Channel)
 				shard.broadcast <- msg
 			}
