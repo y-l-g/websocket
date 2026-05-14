@@ -118,6 +118,10 @@ Configure the module within your `Caddyfile` at the root of your laravel project
             
             num_workers     2           # Number of PHP workers dedicated to Auth
             num_shards      8           # Internal sharding (Default: 2 * CPU Cores)
+            outbound_queue_size 256     # Per-client outbound message queue size
+            backpressure_at 32          # Slow publishes when client queues reach this depth
+            backpressure_sleep 2ms      # Backpressure polling interval
+            backpressure_max_wait 500ms # Max wait before accepting a publish anyway
             
             ping_period     54s         # Server Ping interval
             pong_wait       60s         # Client Pong timeout

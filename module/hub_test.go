@@ -3,15 +3,22 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
 
-type MockBroker struct{}
+type MockBroker struct {
+	publishes atomic.Int64
+}
 
-func (m *MockBroker) Publish(ctx context.Context, msg *BroadcastMessage) error { return nil }
+func (m *MockBroker) Publish(ctx context.Context, msg *BroadcastMessage) error {
+	m.publishes.Add(1)
+	return nil
+}
 func (m *MockBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, error) {
 	return make(chan *BroadcastMessage), nil
 }
@@ -52,6 +59,80 @@ func TestHubSharding(t *testing.T) {
 
 	if len(distribution) < 16 {
 		t.Errorf("Poor distribution: only used %d/32 shards", len(distribution))
+	}
+}
+
+func TestHubPublishWaitsForOutboundQueuePressure(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	broker := &MockBroker{}
+	hub := NewHubWithOptions("test-app", logger, ctx, metrics, nil, nil, broker, 100, 4, DefaultPingPeriod, HubOptions{
+		OutboundBackpressureThreshold: 2,
+		OutboundBackpressureSleep:     time.Millisecond,
+		OutboundBackpressureMaxWait:   50 * time.Millisecond,
+	})
+
+	client := &Client{send: make(chan any, 4)}
+	client.send <- []byte("a")
+	client.send <- []byte("b")
+	client.send <- []byte("c")
+	hub.clients[client] = true
+	hub.recordOutboundQueueDepth(len(client.send))
+
+	start := time.Now()
+	if !hub.Publish("public-test", "bench.event", "{}") {
+		t.Fatal("expected publish to succeed after bounded backpressure wait")
+	}
+
+	if elapsed := time.Since(start); elapsed < 10*time.Millisecond {
+		t.Fatalf("expected publish to wait under queue pressure, only waited %s", elapsed)
+	}
+	if broker.publishes.Load() != 1 {
+		t.Fatalf("expected one broker publish, got %d", broker.publishes.Load())
+	}
+}
+
+func TestHubPublishContinuesWhenOutboundQueueDrains(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	broker := &MockBroker{}
+	hub := NewHubWithOptions("test-app", logger, ctx, metrics, nil, nil, broker, 100, 4, DefaultPingPeriod, HubOptions{
+		OutboundBackpressureThreshold: 2,
+		OutboundBackpressureSleep:     time.Millisecond,
+		OutboundBackpressureMaxWait:   200 * time.Millisecond,
+	})
+
+	client := &Client{send: make(chan any, 4)}
+	client.send <- []byte("a")
+	client.send <- []byte("b")
+	client.send <- []byte("c")
+	hub.clients[client] = true
+	hub.recordOutboundQueueDepth(len(client.send))
+
+	go func() {
+		time.Sleep(10 * time.Millisecond)
+		<-client.send
+		<-client.send
+		<-client.send
+	}()
+
+	start := time.Now()
+	if !hub.Publish("public-test", "bench.event", "{}") {
+		t.Fatal("expected publish to succeed after queue drain")
+	}
+
+	elapsed := time.Since(start)
+	if elapsed < 5*time.Millisecond {
+		t.Fatalf("expected publish to wait for queue drain, only waited %s", elapsed)
+	}
+	if elapsed > 150*time.Millisecond {
+		t.Fatalf("expected publish to continue before max wait after drain, waited %s", elapsed)
 	}
 }
 

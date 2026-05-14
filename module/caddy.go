@@ -37,16 +37,22 @@ type WebsocketModule struct {
 	WebhookURL        string  `json:"webhook_url,omitempty"`
 	WebhookSecret     string  `json:"webhook_secret,omitempty"`
 	RedisHost         string  `json:"redis_host,omitempty"`
+	OutboundQueueSize int     `json:"outbound_queue_size,omitempty"`
+	BackpressureAt    int     `json:"backpressure_at,omitempty"`
 
 	// Timeouts
-	PingPeriod string `json:"ping_period,omitempty"`
-	WriteWait  string `json:"write_wait,omitempty"`
-	PongWait   string `json:"pong_wait,omitempty"`
+	PingPeriod          string `json:"ping_period,omitempty"`
+	WriteWait           string `json:"write_wait,omitempty"`
+	PongWait            string `json:"pong_wait,omitempty"`
+	BackpressureSleep   string `json:"backpressure_sleep,omitempty"`
+	BackpressureMaxWait string `json:"backpressure_max_wait,omitempty"`
 
 	// Parsed Durations
-	pingPeriodDuration time.Duration
-	writeWaitDuration  time.Duration
-	pongWaitDuration   time.Duration
+	pingPeriodDuration        time.Duration
+	writeWaitDuration         time.Duration
+	pongWaitDuration          time.Duration
+	backpressureSleepDuration time.Duration
+	backpressureMaxWait       time.Duration
 
 	hub          *Hub
 	metrics      *Metrics
@@ -95,7 +101,11 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		return err
 	}
 
-	m.hub = NewHub(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker, m.MaxConnections, m.NumShards, m.pingPeriodDuration)
+	m.hub = NewHubWithOptions(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker, m.MaxConnections, m.NumShards, m.pingPeriodDuration, HubOptions{
+		OutboundBackpressureThreshold: m.BackpressureAt,
+		OutboundBackpressureSleep:     m.backpressureSleepDuration,
+		OutboundBackpressureMaxWait:   m.backpressureMaxWait,
+	})
 
 	if err := RegisterHub(m.AppID, m.hub); err != nil {
 		return err
@@ -145,6 +155,18 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	if m.MaxConcurrentAuth == 0 {
 		m.MaxConcurrentAuth = 100
 	}
+	if m.OutboundQueueSize == 0 {
+		m.OutboundQueueSize = DefaultOutboundQueueSize
+	}
+	if m.OutboundQueueSize < 0 {
+		return fmt.Errorf("outbound_queue_size must be positive")
+	}
+	if m.BackpressureAt == 0 {
+		m.BackpressureAt = DefaultBackpressureThreshold
+	}
+	if m.BackpressureAt < 0 {
+		return fmt.Errorf("backpressure_at must be positive")
+	}
 
 	if m.NumShards == 0 {
 		m.NumShards = runtime.NumCPU() * 2
@@ -181,6 +203,24 @@ func (m *WebsocketModule) validateAndDefaults() error {
 		m.pongWaitDuration, err = time.ParseDuration(m.PongWait)
 		if err != nil {
 			return fmt.Errorf("invalid pong_wait: %v", err)
+		}
+	}
+
+	if m.BackpressureSleep == "" {
+		m.backpressureSleepDuration = DefaultBackpressureSleep
+	} else {
+		m.backpressureSleepDuration, err = time.ParseDuration(m.BackpressureSleep)
+		if err != nil {
+			return fmt.Errorf("invalid backpressure_sleep: %v", err)
+		}
+	}
+
+	if m.BackpressureMaxWait == "" {
+		m.backpressureMaxWait = DefaultBackpressureMaxWait
+	} else {
+		m.backpressureMaxWait, err = time.ParseDuration(m.BackpressureMaxWait)
+		if err != nil {
+			return fmt.Errorf("invalid backpressure_max_wait: %v", err)
 		}
 	}
 	return nil
@@ -249,7 +289,7 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 		ID:         clientID,
 		hub:        m.hub,
 		conn:       conn,
-		send:       make(chan any, 256),
+		send:       make(chan any, m.OutboundQueueSize),
 		Headers:    headers,
 		ctx:        ctx,
 		cancel:     cancel,
@@ -330,6 +370,24 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Errf("invalid number: %v", err)
 				}
 				m.NumShards = c
+			case "outbound_queue_size":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				var c int
+				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+				m.OutboundQueueSize = c
+			case "backpressure_at":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				var c int
+				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+				m.BackpressureAt = c
 			case "handshake_rate":
 				if !d.NextArg() {
 					return d.ArgErr()
@@ -363,6 +421,16 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				m.PongWait = d.Val()
+			case "backpressure_sleep":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.BackpressureSleep = d.Val()
+			case "backpressure_max_wait":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.BackpressureMaxWait = d.Val()
 			case "webhook_url":
 				if !d.NextArg() {
 					return d.ArgErr()

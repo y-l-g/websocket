@@ -83,12 +83,19 @@ type SignInData struct {
 }
 
 func (c *Client) Send(msg any) {
-	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
-		c.hub.metrics.ClientQueueDepth.Observe(float64(len(c.send)))
+	depth := len(c.send)
+	if c.hub != nil {
+		c.hub.recordOutboundQueueDepth(depth)
+		if c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
+			c.hub.metrics.ClientQueueDepth.Observe(float64(depth))
+		}
 	}
 
 	select {
 	case c.send <- msg:
+		if c.hub != nil {
+			c.hub.recordOutboundQueueDepth(len(c.send))
+		}
 	default:
 		if c.hub != nil && c.hub.metrics != nil {
 			c.hub.metrics.DroppedMessages.Inc()
@@ -311,8 +318,10 @@ func (c *Client) writeMessage(kind string, fn func() error) error {
 	start := time.Now()
 	err := fn()
 
-	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
-		c.hub.metrics.WriteDuration.WithLabelValues(kind).Observe(time.Since(start).Seconds())
+	if c.hub != nil && c.hub.metrics != nil {
+		if c.hub.metrics.HotPathEnabled {
+			c.hub.metrics.WriteDuration.WithLabelValues(kind).Observe(time.Since(start).Seconds())
+		}
 		if err != nil {
 			c.hub.metrics.WriteFailures.WithLabelValues(kind).Inc()
 		}

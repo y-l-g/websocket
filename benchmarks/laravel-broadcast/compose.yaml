@@ -48,7 +48,7 @@ services:
       CADDY_SERVER_ADMIN_HOST: 0.0.0.0
       CADDY_SERVER_ADMIN_PORT: 2019
       CADDY_SERVER_LOG_LEVEL: WARN
-      POGO_WS_HOT_PATH_METRICS: ${POGO_WS_HOT_PATH_METRICS:-true}
+      POGO_WS_HOT_PATH_METRICS: ${POGO_WS_HOT_PATH_METRICS:-false}
     healthcheck:
       test:
         [

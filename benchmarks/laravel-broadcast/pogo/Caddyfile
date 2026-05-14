@@ -30,6 +30,10 @@
             auth_path       /pogo/auth
             auth_script     "{$APP_PUBLIC_PATH}/pogo-auth-worker.php"
             num_workers     2
+            outbound_queue_size 256
+            backpressure_at 32
+            backpressure_sleep 2ms
+            backpressure_max_wait 500ms
 
             webhook_url     http://localhost/webhook
             webhook_secret  super-secret-key

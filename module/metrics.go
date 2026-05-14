@@ -120,5 +120,5 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 func hotPathMetricsEnabled() bool {
 	value := strings.ToLower(strings.TrimSpace(os.Getenv("POGO_WS_HOT_PATH_METRICS")))
-	return value != "0" && value != "false" && value != "off"
+	return value == "1" || value == "true" || value == "on"
 }

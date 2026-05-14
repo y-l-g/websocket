@@ -322,6 +322,21 @@ export function handleSummary(data) {
   const expectedPerSuccessfulBatch = subscribed * MSG_COUNT;
   const totalExpectedMessages = expectedPerSuccessfulBatch * published;
   const missing = Math.max(0, totalExpectedMessages - observed);
+  const diagnostics = prometheus.derived
+    ? {
+        fanoutDurationP95Ms: prometheus.derived.fanoutDurationSeconds?.p95 == null
+          ? null
+          : prometheus.derived.fanoutDurationSeconds.p95 * 1000,
+        clientQueueDepthP95: prometheus.derived.clientQueueDepth?.p95 ?? null,
+        clientQueueDepthP99: prometheus.derived.clientQueueDepth?.p99 ?? null,
+        writeDurationPreparedP95Ms: prometheus.derived.writeDurationPreparedSeconds?.p95 == null
+          ? null
+          : prometheus.derived.writeDurationPreparedSeconds.p95 * 1000,
+        clientDroppedMessagesTotal: prometheus.derived.clientDroppedMessagesTotal,
+        brokerDroppedMessagesTotal: prometheus.derived.brokerDroppedMessagesTotal,
+        writeFailuresTotal: prometheus.derived.writeFailuresTotal,
+      }
+    : null;
 
   const summary = {
     driver: DRIVER,
@@ -366,8 +381,19 @@ export function handleSummary(data) {
       scrape: prometheus.scrape,
       derived: prometheus.derived,
     },
+    diagnostics,
     metrics: data.metrics,
   };
+
+  const diagnosticLines = diagnostics
+    ? [
+        `client_queue_depth_p95=${diagnostics.clientQueueDepthP95}`,
+        `client_queue_depth_p99=${diagnostics.clientQueueDepthP99}`,
+        `prepared_write_duration_p95_ms=${diagnostics.writeDurationPreparedP95Ms}`,
+        `client_dropped_messages=${diagnostics.clientDroppedMessagesTotal}`,
+        `broker_dropped_messages=${diagnostics.brokerDroppedMessagesTotal}`,
+      ]
+    : [];
 
   const outputs = {
     stdout: [
@@ -385,6 +411,7 @@ export function handleSummary(data) {
       `msg_latency_p95_ms=${summary.latency.messageP95Ms}`,
       `publish_duration_p95_ms=${summary.latency.publishP95Ms}`,
       `prometheus_metrics_ok=${prometheus.scrape.ok || false}`,
+      ...diagnosticLines,
       `summary_file=${RESULT_FILE}`,
       "",
     ].join("\n"),
