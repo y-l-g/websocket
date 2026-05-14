@@ -5,6 +5,20 @@ x-laravel-env: &laravel-env
   CACHE_STORE: array
   QUEUE_CONNECTION: sync
   SESSION_DRIVER: array
+  LOG_CHANNEL: stderr
+  LOG_LEVEL: warning
+
+x-k6-env: &k6-env
+  VUS: ${VUS:-500}
+  MSG_COUNT: ${MSG_COUNT:-100}
+  PAYLOAD_SIZE: ${PAYLOAD_SIZE:-1024}
+  PUBLISH_BATCHES: ${PUBLISH_BATCHES:-20}
+  BATCH_INTERVAL_SECONDS: ${BATCH_INTERVAL_SECONDS:-2}
+  RAMP_UP_SECONDS: ${RAMP_UP_SECONDS:-10}
+  HOLD_SECONDS: ${HOLD_SECONDS:-45}
+  RAMP_DOWN_SECONDS: ${RAMP_DOWN_SECONDS:-5}
+  PUBLISH_START_SECONDS: ${PUBLISH_START_SECONDS:-12}
+  PUBLISH_MAX_DURATION_SECONDS: ${PUBLISH_MAX_DURATION_SECONDS:-}
 
 services:
   pogo:
@@ -28,8 +42,7 @@ services:
       BROADCAST_CONNECTION: pogo
       WS_APP_ID: pogo-app
       WS_APP_SECRET: super-secret-key
-    ports:
-      - "8081:8000"
+      CADDY_SERVER_LOG_LEVEL: WARN
     healthcheck:
       test:
         [
@@ -58,8 +71,6 @@ services:
       REVERB_HOST: reverb-ws
       REVERB_PORT: 8080
       REVERB_SCHEME: http
-    ports:
-      - "8082:8000"
     healthcheck:
       test:
         [
@@ -87,42 +98,55 @@ services:
       REVERB_HOST: reverb-ws
       REVERB_PORT: 8080
       REVERB_SCHEME: http
-    ports:
-      - "8083:8080"
     healthcheck:
-      disable: true
+      test:
+        [
+          "CMD-SHELL",
+          "php -r 'exit(@fsockopen(\"127.0.0.1\",8080) ? 0 : 1);'",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 24
     depends_on:
       reverb-app:
         condition: service_healthy
 
   k6-pogo:
-    image: grafana/k6
+    image: grafana/k6:1.4.2
+    user: "${K6_UID:-1000}:${K6_GID:-1000}"
     command: ["run", "/scripts/benchmark.js"]
     environment:
+      <<: *k6-env
       DRIVER: pogo
       HTTP_HOST: pogo
       WS_HOST: pogo
       HTTP_PORT: 8000
       WS_PORT: 8000
+      RESULT_FILE: /results/pogo-summary.json
     volumes:
       - ./benchmark.js:/scripts/benchmark.js:ro
+      - ./results:/results
     depends_on:
       pogo:
         condition: service_healthy
 
   k6-reverb:
-    image: grafana/k6
+    image: grafana/k6:1.4.2
+    user: "${K6_UID:-1000}:${K6_GID:-1000}"
     command: ["run", "/scripts/benchmark.js"]
     environment:
+      <<: *k6-env
       DRIVER: reverb
       HTTP_HOST: reverb-app
       WS_HOST: reverb-ws
       HTTP_PORT: 8000
       WS_PORT: 8080
+      RESULT_FILE: /results/reverb-summary.json
     volumes:
       - ./benchmark.js:/scripts/benchmark.js:ro
+      - ./results:/results
     depends_on:
       reverb-app:
         condition: service_healthy
       reverb-ws:
-        condition: service_started
+        condition: service_healthy

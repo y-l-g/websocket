@@ -6,8 +6,8 @@ use Illuminate\Http\Request;
 
 // 1. Simple helper to fire events
 Route::get('/fire', function (Request $request) {
-    $count = $request->input('count', 1);
-    $size = $request->input('size', 100);
+    $count = min(max((int) $request->input('count', 1), 0), 10000);
+    $size = min(max((int) $request->input('size', 100), 0), 65536);
 
     $start = microtime(true);
 

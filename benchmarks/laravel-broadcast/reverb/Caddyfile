@@ -1,5 +1,4 @@
 {
-    debug
     frankenphp
     metrics {
 		per_host

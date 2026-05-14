@@ -22,19 +22,34 @@ COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
 
 ARG APP_PATH=benchmarks/laravel-broadcast/pogo
 
-COPY --chown=www-data:www-data composer.json /composer.json
-COPY --chown=www-data:www-data lib/. /lib/
-COPY --chown=www-data:www-data ${APP_PATH}/. /var/www/html/
+COPY --chown=www-data:www-data composer.json /build/composer.json
+COPY --chown=www-data:www-data lib/. /build/lib/
 
-WORKDIR /var/www/html
+WORKDIR /build/${APP_PATH}
+
+COPY --chown=www-data:www-data ${APP_PATH}/composer.json ${APP_PATH}/composer.lock /build/${APP_PATH}/
 
 USER www-data
 
 RUN composer install -v \
     --no-dev \
-    --optimize-autoloader \
+    --no-autoloader \
     --no-scripts \
-    --prefer-dist \
+    --prefer-dist
+
+COPY --chown=www-data:www-data ${APP_PATH}/. /build/${APP_PATH}/
+
+RUN composer dump-autoload \
+    --optimize \
     --classmap-authoritative \
     && rm -f bootstrap/cache/packages.php bootstrap/cache/services.php \
     && php artisan package:discover --ansi
+
+USER root
+
+RUN cp -a /build/${APP_PATH}/. /var/www/html/ \
+    && chown -R www-data:www-data /var/www/html
+
+WORKDIR /var/www/html
+
+USER www-data
