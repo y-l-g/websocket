@@ -17,44 +17,41 @@ Both apps expose the same `/fire?count=...&size=...` endpoint. The k6 script ope
 
 ## Prerequisites
 
-* A FrankenPHP binary built with the websocket module for the Pogo run.
-* PHP and Composer for each Laravel app.
-* Node.js only if frontend assets need to be rebuilt.
-* `k6` for the load generator.
+* Docker with Compose.
 
 ## Run
 
-Install each app once:
+Start the Pogo app, then run its k6 workload:
 
 ```bash
-cd benchmarks/laravel-broadcast/pogo
-composer install
-cp .env.example .env
-php artisan key:generate
-php artisan migrate --force
+cd benchmarks/laravel-broadcast
+docker compose up -d pogo
+docker compose run --rm k6-pogo
 ```
 
-Repeat the same setup in `benchmarks/laravel-broadcast/reverb`.
-
-Run the Pogo app:
+Start the Reverb HTTP app and websocket server, then run the matching k6 workload:
 
 ```bash
-cd benchmarks/laravel-broadcast/pogo
-frankenphp run --config Caddyfile
+cd benchmarks/laravel-broadcast
+docker compose up -d reverb-app reverb-ws
+docker compose run --rm k6-reverb
 ```
 
-Then run the Pogo benchmark:
+Clean up containers, networks, and anonymous volumes:
+
+```bash
+cd benchmarks/laravel-broadcast
+docker compose down -v
+```
+
+Compose builds a benchmark-local FrankenPHP image with the websocket, queue, and scheduler modules. It also runs Composer, creates `.env` and the SQLite database, generates an app key when needed, applies migrations, clears Laravel caches, and runs k6 inside containers.
+
+The benchmark script still accepts explicit host and port overrides for advanced runs:
 
 ```bash
 cd benchmarks/laravel-broadcast
 DRIVER=pogo HOST=localhost HTTP_PORT=80 WS_PORT=80 k6 run benchmark.js
-```
-
-Run the Reverb app according to its Laravel/Reverb setup, then run:
-
-```bash
-cd benchmarks/laravel-broadcast
-DRIVER=reverb HOST=localhost HTTP_PORT=8000 WS_PORT=8080 k6 run benchmark.js
+DRIVER=reverb HTTP_HOST=localhost WS_HOST=localhost HTTP_PORT=8000 WS_PORT=8080 k6 run benchmark.js
 ```
 
 The benchmark script expects the Pogo app key to be `pogo-app` and the Reverb app key to be `reverb-key`, matching the checked-in `.env.example` files.

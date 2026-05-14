@@ -6,6 +6,8 @@ import { Trend, Counter, Rate } from "k6/metrics";
 // --- CONFIGURATION ---
 const DRIVER = __ENV.DRIVER || "reverb"; // 'reverb' or 'pogo'
 const HOST = __ENV.HOST || "localhost";
+const HTTP_HOST = __ENV.HTTP_HOST || HOST;
+const WS_HOST = __ENV.WS_HOST || HOST;
 const HTTP_PORT = __ENV.HTTP_PORT || "8000"; // Laravel Port
 const WS_PORT = __ENV.WS_PORT || (DRIVER === "reverb" ? "8080" : "80"); // Reverb default 8080, Pogo default 80
 const VUS = __ENV.VUS || 500; // Concurrent Users
@@ -20,7 +22,7 @@ const deliveryRate = new Rate("delivery_success");
 // --- URL CONSTRUCTION ---
 const appKey = DRIVER === "reverb" ? "reverb-key" : "pogo-app"; // Match your .env
 const wsScheme = "ws";
-const wsUrl = `${wsScheme}://${HOST}:${WS_PORT}/app/${appKey}?protocol=7&client=js&version=8.4.0&flash=false`;
+const wsUrl = `${wsScheme}://${WS_HOST}:${WS_PORT}/app/${appKey}?protocol=7&client=js&version=8.4.0&flash=false`;
 
 export const options = {
   scenarios: {
@@ -90,7 +92,7 @@ export function listener() {
 
 export function publisher() {
   // Tell Laravel to fire events
-  const url = `http://${HOST}:${HTTP_PORT}/fire?count=${MSG_COUNT}&size=1024`;
+  const url = `http://${HTTP_HOST}:${HTTP_PORT}/fire?count=${MSG_COUNT}&size=1024`;
   const res = http.get(url);
 
   check(res, {

@@ -1,0 +1,148 @@
+name: laravel-broadcast-benchmark
+
+x-app-build: &app-build
+  context: ../..
+  dockerfile: benchmarks/laravel-broadcast/.dev/Dockerfile
+  args:
+    USER_ID: ${USER_ID:-1000}
+    GROUP_ID: ${GROUP_ID:-1000}
+
+x-laravel-env: &laravel-env
+  APP_ENV: local
+  APP_DEBUG: false
+  COMPOSER_HOME: /tmp/composer
+  DB_CONNECTION: sqlite
+  LOG_CHANNEL: stderr
+
+services:
+  pogo:
+    build: *app-build
+    working_dir: /var/www/html
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        composer install --no-interaction --prefer-dist
+        [ -f .env ] || cp .env.example .env
+        mkdir -p database bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs
+        [ -f database/database.sqlite ] || touch database/database.sqlite
+        if ! grep -Eq '^APP_KEY=base64:.+' .env; then php artisan key:generate --force; fi
+        php artisan migrate --force
+        php artisan optimize:clear
+        exec frankenphp run --config Caddyfile
+    environment:
+      <<: *laravel-env
+      BROADCAST_CONNECTION: pogo
+      WS_APP_ID: pogo-app
+      WS_APP_SECRET: super-secret-key
+    volumes:
+      - ./pogo:/var/www/html
+      - ../..:/pogo-websocket-src:ro
+    ports:
+      - "8081:80"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1/fire?count=0 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  reverb-app:
+    build: *app-build
+    working_dir: /var/www/html
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        composer install --no-interaction --prefer-dist
+        [ -f .env ] || cp .env.example .env
+        mkdir -p database bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs
+        [ -f database/database.sqlite ] || touch database/database.sqlite
+        if ! grep -Eq '^APP_KEY=base64:.+' .env; then php artisan key:generate --force; fi
+        php artisan migrate --force
+        php artisan optimize:clear
+        exec frankenphp run --config Caddyfile
+    environment:
+      <<: *laravel-env
+      BROADCAST_CONNECTION: reverb
+      REVERB_APP_ID: reverb-app
+      REVERB_APP_KEY: reverb-key
+      REVERB_APP_SECRET: reverb-secret
+      REVERB_HOST: reverb-ws
+      REVERB_PORT: 8080
+      REVERB_SCHEME: http
+    volumes:
+      - ./reverb:/var/www/html
+    ports:
+      - "8082:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/fire?count=0 >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  reverb-ws:
+    build: *app-build
+    working_dir: /var/www/html
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        composer install --no-interaction --prefer-dist
+        [ -f .env ] || cp .env.example .env
+        mkdir -p database bootstrap/cache storage/framework/cache/data storage/framework/sessions storage/framework/views storage/logs
+        [ -f database/database.sqlite ] || touch database/database.sqlite
+        if ! grep -Eq '^APP_KEY=base64:.+' .env; then php artisan key:generate --force; fi
+        php artisan migrate --force
+        php artisan optimize:clear
+        exec php artisan reverb:start --host=0.0.0.0 --port=8080
+    environment:
+      <<: *laravel-env
+      BROADCAST_CONNECTION: reverb
+      REVERB_APP_ID: reverb-app
+      REVERB_APP_KEY: reverb-key
+      REVERB_APP_SECRET: reverb-secret
+      REVERB_HOST: reverb-ws
+      REVERB_PORT: 8080
+      REVERB_SCHEME: http
+    volumes:
+      - ./reverb:/var/www/html
+    ports:
+      - "8083:8080"
+    depends_on:
+      reverb-app:
+        condition: service_healthy
+
+  k6-pogo:
+    image: grafana/k6
+    command: ["run", "/scripts/benchmark.js"]
+    environment:
+      DRIVER: pogo
+      HTTP_HOST: pogo
+      WS_HOST: pogo
+      HTTP_PORT: 80
+      WS_PORT: 80
+    volumes:
+      - ./benchmark.js:/scripts/benchmark.js:ro
+    depends_on:
+      pogo:
+        condition: service_healthy
+
+  k6-reverb:
+    image: grafana/k6
+    command: ["run", "/scripts/benchmark.js"]
+    environment:
+      DRIVER: reverb
+      HTTP_HOST: reverb-app
+      WS_HOST: reverb-ws
+      HTTP_PORT: 8000
+      WS_PORT: 8080
+    volumes:
+      - ./benchmark.js:/scripts/benchmark.js:ro
+    depends_on:
+      reverb-app:
+        condition: service_healthy
+      reverb-ws:
+        condition: service_started

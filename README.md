@@ -46,19 +46,26 @@ You can use the pre-compiled binaries or Docker images that already include the 
 * **Binaries:** Download from [FrankenPHP with websocket, queue, and scheduler releases](https://github.com/y-l-g/websocket/releases).
 * **Docker:** Use the [docker image](https://github.com/y-l-g?tab=packages&repo_name=websocket).
 
-#### Compile from Source
+#### Advanced Host Build
 
-If you prefer to build it yourself, follow [the instructions to install a ZTS version of libphp and `xcaddy`](https://frankenphp.dev/docs/compile/#install-php). Then, use `xcaddy` to build FrankenPHP with the Pogo WebSocket module:
+Only use a host-native `xcaddy` build if your host has a ZTS PHP development install with `php-config` available. A regular PHP CLI runtime is not enough, and an NTS build cannot be used to build this extension.
+
+If you intentionally maintain a host build environment, install `xcaddy` with Go and run:
 
 ```bash
+go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
 CGO_ENABLED=1 \
-CGO_CFLAGS=$(php-config --includes) \
+CGO_CFLAGS="-D_GNU_SOURCE $(php-config --includes)" \
 CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
-xcaddy build \
+$(go env GOPATH)/bin/xcaddy build \
     --output frankenphp \
-    --with github.com/y-l-g/websocket/module \
-    --with github.com/dunglas/frankenphp/caddy \
-    --with github.com/dunglas/caddy-cbrotli
+    --with github.com/dunglas/frankenphp@v1.12.2 \
+    --with github.com/dunglas/frankenphp/caddy@v1.12.2 \
+    --with github.com/dunglas/caddy-cbrotli@v1.0.1 \
+    --with github.com/y-l-g/queue/module@main \
+    --with github.com/y-l-g/scheduler/module@main \
+    --with github.com/y-l-g/websocket/module=./module
 ```
 
 ### Step 2: Install the Laravel Broadcast Driver
@@ -145,7 +152,7 @@ VITE_POGO_PORT=80 #your site port
 VITE_POGO_WSS_PORT=443 #your site port
 ```
 
-Start octane (`frankenphp` must be compiled with `pogo`, use the `dockerfile` or the binary provided in this repo and put it in you bin folder).
+Start octane (`frankenphp` must be compiled with `pogo`; use the Docker image or a compatible local binary).
 
 ```bash
 php artisan octane:start --caddyfile=Caddyfile
@@ -160,6 +167,16 @@ frankenphp run --config Caddyfile
 ## Benchmarks
 
 Benchmark fixtures live in [`benchmarks/`](benchmarks/), not `examples/`, because they are maintained as measurement tools rather than tutorials. The Laravel broadcast scenario compares Pogo WebSocket and Laravel Reverb with the same event publisher and k6 listener workload.
+
+Local benchmarking is Compose-first and does not require host PHP, `php-config`, `xcaddy`, Composer, or k6:
+
+```bash
+cd benchmarks/laravel-broadcast
+docker compose up -d pogo
+docker compose run --rm k6-pogo
+```
+
+See [`benchmarks/README.md`](benchmarks/README.md) for the Pogo and Reverb benchmark commands.
 
 For feature demonstrations, use `pogoShowcase`; this repository should only contain minimal examples when they directly document package usage.
 

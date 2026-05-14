@@ -4,7 +4,7 @@
         "Read more about it at https://getcomposer.org/doc/01-basic-usage.md#installing-dependencies",
         "This file is @generated automatically"
     ],
-    "content-hash": "32faf862459e9286f3e6d5f3930a8149",
+    "content-hash": "47d32bd79ff96ba421f880861f1ac03b",
     "packages": [
         {
             "name": "brick/math",
@@ -2875,28 +2875,21 @@
         {
             "name": "pogo/websocket",
             "version": "dev-main",
-            "source": {
-                "type": "git",
-                "url": "https://github.com/y-l-g/websocket.git",
-                "reference": "624061880f1ee622e01b8c1773d86a798b00d528"
-            },
             "dist": {
-                "type": "zip",
-                "url": "https://api.github.com/repos/y-l-g/websocket/zipball/624061880f1ee622e01b8c1773d86a798b00d528",
-                "reference": "624061880f1ee622e01b8c1773d86a798b00d528",
-                "shasum": ""
+                "type": "path",
+                "url": "/pogo-websocket-src",
+                "reference": "3bfba3d1a4eb84d13c68edc2ffe710c2f2bd346d"
             },
             "require": {
-                "laravel/octane": "2.13",
-                "pusher/pusher-php-server": "^7.2"
+                "laravel/octane": "^2.0",
+                "pusher/pusher-php-server": "^7.0"
             },
             "require-dev": {
-                "friendsofphp/php-cs-fixer": "^3.90",
-                "mockery/mockery": "^1.6",
-                "phpstan/phpstan": "^2.1",
-                "phpunit/phpunit": "^12.4"
+                "friendsofphp/php-cs-fixer": "^3.0",
+                "mockery/mockery": "^1.0",
+                "phpstan/phpstan": "^2.0",
+                "phpunit/phpunit": "^12.0"
             },
-            "default-branch": true,
             "type": "library",
             "extra": {
                 "laravel": {
@@ -2910,13 +2903,11 @@
                     "Pogo\\WebSocket\\": "lib/src/"
                 }
             },
-            "notification-url": "https://packagist.org/downloads/",
             "description": "Pogo WebSocket Driver",
-            "support": {
-                "issues": "https://github.com/y-l-g/websocket/issues",
-                "source": "https://github.com/y-l-g/websocket/tree/main"
-            },
-            "time": "2025-12-08T18:20:38+00:00"
+            "transport-options": {
+                "symlink": false,
+                "relative": false
+            }
         },
         {
             "name": "psr/clock",
@@ -8835,5 +8826,5 @@
         "php": "^8.2"
     },
     "platform-dev": {},
-    "plugin-api-version": "2.6.0"
+    "plugin-api-version": "2.9.0"
 }
