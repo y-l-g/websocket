@@ -8,20 +8,23 @@ import (
 )
 
 type Metrics struct {
-	Connections       prometheus.Gauge
-	Messages          prometheus.Counter
-	Subscriptions     prometheus.Counter
-	AuthDuration      prometheus.Histogram
-	BreakerTripped    prometheus.Counter
-	AuthFailures      *prometheus.CounterVec
-	DroppedMessages   prometheus.Counter
-	BrokerDropped     prometheus.Counter
-	FanoutDuration    prometheus.Histogram
-	FanoutSubscribers prometheus.Histogram
-	ClientQueueDepth  prometheus.Histogram
-	WriteDuration     *prometheus.HistogramVec
-	WriteFailures     *prometheus.CounterVec
-	HotPathEnabled    bool
+	Connections            prometheus.Gauge
+	Messages               prometheus.Counter
+	Subscriptions          prometheus.Counter
+	AuthDuration           prometheus.Histogram
+	BreakerTripped         prometheus.Counter
+	AuthFailures           *prometheus.CounterVec
+	DroppedMessages        prometheus.Counter
+	BrokerDropped          prometheus.Counter
+	FanoutDuration         prometheus.Histogram
+	FanoutBackpressureWait prometheus.Histogram
+	FanoutSubscribers      prometheus.Histogram
+	ClientQueueDepth       prometheus.Histogram
+	ClientQueueResidence   prometheus.Histogram
+	WriteDuration          *prometheus.HistogramVec
+	WriteTotalDuration     *prometheus.HistogramVec
+	WriteFailures          *prometheus.CounterVec
+	HotPathEnabled         bool
 }
 
 func NewMetrics(reg prometheus.Registerer) *Metrics {
@@ -74,6 +77,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help:      "Duration spent enqueueing one broadcast to subscribed clients",
 			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
 		}),
+		FanoutBackpressureWait: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "pogo_websocket",
+			Name:      "fanout_backpressure_wait_seconds",
+			Help:      "Duration spent waiting for client outbound queues before fanout",
+			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
+		}),
 		FanoutSubscribers: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "pogo_websocket",
 			Name:      "fanout_subscribers",
@@ -86,10 +95,22 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help:      "Client outbound queue depth sampled when messages are enqueued",
 			Buckets:   []float64{0, 1, 2, 4, 8, 16, 32, 64, 128, 192, 256},
 		}),
+		ClientQueueResidence: prometheus.NewHistogram(prometheus.HistogramOpts{
+			Namespace: "pogo_websocket",
+			Name:      "client_queue_residence_seconds",
+			Help:      "Time outbound messages spend queued before the client write loop handles them",
+			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
+		}),
 		WriteDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "pogo_websocket",
 			Name:      "write_duration_seconds",
 			Help:      "Duration spent writing websocket messages by message kind",
+			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
+		}, []string{"kind"}),
+		WriteTotalDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
+			Namespace: "pogo_websocket",
+			Name:      "write_total_duration_seconds",
+			Help:      "Duration spent setting write deadline and writing websocket messages by message kind",
 			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
 		}, []string{"kind"}),
 		WriteFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
@@ -109,9 +130,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		_ = reg.Register(m.DroppedMessages)
 		_ = reg.Register(m.BrokerDropped)
 		_ = reg.Register(m.FanoutDuration)
+		_ = reg.Register(m.FanoutBackpressureWait)
 		_ = reg.Register(m.FanoutSubscribers)
 		_ = reg.Register(m.ClientQueueDepth)
+		_ = reg.Register(m.ClientQueueResidence)
 		_ = reg.Register(m.WriteDuration)
+		_ = reg.Register(m.WriteTotalDuration)
 		_ = reg.Register(m.WriteFailures)
 	}
 

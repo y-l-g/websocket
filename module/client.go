@@ -19,6 +19,7 @@ const (
 	DefaultPongWait   = 60 * time.Second
 	DefaultPingPeriod = (DefaultPongWait * 9) / 10
 	maxMessageSize    = 512
+	maxWriteBurst     = 64
 )
 
 type WSConnection interface {
@@ -82,10 +83,19 @@ type SignInData struct {
 	UserData string `json:"user_data"`
 }
 
+type queuedOutboundMessage struct {
+	payload    any
+	enqueuedAt time.Time
+}
+
 func (c *Client) Send(msg any) {
 	depth := len(c.send)
 	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
 		c.hub.metrics.ClientQueueDepth.Observe(float64(depth))
+		msg = queuedOutboundMessage{
+			payload:    msg,
+			enqueuedAt: time.Now(),
+		}
 	}
 
 	select {
@@ -260,52 +270,118 @@ func (c *Client) writePump() {
 	for {
 		select {
 		case <-c.ctx.Done():
-			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
-			c.writeMessage("close", func() error {
+			if err := c.writeWithDeadline("close", func() error {
 				return c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-			})
+			}); err != nil {
+				return
+			}
 			return
 
 		case message, ok := <-c.send:
-			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
 			if !ok {
-				c.writeMessage("close", func() error {
+				if err := c.writeWithDeadline("close", func() error {
 					return c.conn.WriteMessage(websocket.CloseMessage, []byte{})
-				})
+				}); err != nil {
+					return
+				}
 				return
 			}
 
-			switch v := message.(type) {
-			case []byte:
-				if err := c.writeMessage("bytes", func() error {
-					w, err := c.conn.NextWriter(websocket.TextMessage)
-					if err != nil {
-						return err
-					}
-					if _, err := w.Write(v); err != nil {
-						return err
-					}
-					return w.Close()
-				}); err != nil {
-					return
-				}
-			case *websocket.PreparedMessage:
-				if err := c.writeMessage("prepared", func() error {
-					return c.conn.WritePreparedMessage(v)
-				}); err != nil {
-					return
-				}
+			if err := c.writeOutboundBurst(message); err != nil {
+				return
 			}
 
 		case <-ticker.C:
-			_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
-			if err := c.writeMessage("ping", func() error {
+			if err := c.writeWithDeadline("ping", func() error {
 				return c.conn.WriteMessage(websocket.PingMessage, nil)
 			}); err != nil {
 				return
 			}
 		}
 	}
+}
+
+func (c *Client) writeOutboundBurst(first any) error {
+	deadlineStart := time.Now()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
+
+	if err := c.writeQueuedOutbound(first, deadlineStart, true); err != nil {
+		return err
+	}
+
+	for i := 1; i < maxWriteBurst; i++ {
+		select {
+		case message, ok := <-c.send:
+			if !ok {
+				return c.writeWithDeadline("close", func() error {
+					return c.conn.WriteMessage(websocket.CloseMessage, []byte{})
+				})
+			}
+			if err := c.writeQueuedOutbound(message, time.Now(), false); err != nil {
+				return err
+			}
+		default:
+			return nil
+		}
+	}
+
+	return nil
+}
+
+func (c *Client) writeQueuedOutbound(message any, start time.Time, includesDeadline bool) error {
+	payload := message
+	if queued, ok := message.(queuedOutboundMessage); ok {
+		payload = queued.payload
+		if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
+			c.hub.metrics.ClientQueueResidence.Observe(time.Since(queued.enqueuedAt).Seconds())
+		}
+	}
+
+	switch v := payload.(type) {
+	case []byte:
+		return c.writeOutboundMessage("bytes", start, includesDeadline, func() error {
+			w, err := c.conn.NextWriter(websocket.TextMessage)
+			if err != nil {
+				return err
+			}
+			if _, err := w.Write(v); err != nil {
+				return err
+			}
+			return w.Close()
+		})
+	case *websocket.PreparedMessage:
+		return c.writeOutboundMessage("prepared", start, includesDeadline, func() error {
+			return c.conn.WritePreparedMessage(v)
+		})
+	default:
+		return nil
+	}
+}
+
+func (c *Client) writeOutboundMessage(kind string, start time.Time, includesDeadline bool, fn func() error) error {
+	err := c.writeMessage(kind, fn)
+
+	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
+		metricKind := kind
+		if includesDeadline {
+			metricKind += "_with_deadline"
+		}
+		c.hub.metrics.WriteTotalDuration.WithLabelValues(metricKind).Observe(time.Since(start).Seconds())
+	}
+
+	return err
+}
+
+func (c *Client) writeWithDeadline(kind string, fn func() error) error {
+	start := time.Now()
+	_ = c.conn.SetWriteDeadline(time.Now().Add(c.WriteWait))
+	err := c.writeMessage(kind, fn)
+
+	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
+		c.hub.metrics.WriteTotalDuration.WithLabelValues(kind).Observe(time.Since(start).Seconds())
+	}
+
+	return err
 }
 
 func (c *Client) writeMessage(kind string, fn func() error) error {

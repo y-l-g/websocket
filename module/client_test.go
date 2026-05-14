@@ -16,12 +16,13 @@ import (
 )
 
 type MockWSConnection struct {
-	mu           sync.Mutex
-	ReadMsgQueue []string
-	WriteMsgs    []string
-	CloseCalled  bool
-	Closed       chan struct{}
-	NewMsg       chan struct{}
+	mu                 sync.Mutex
+	ReadMsgQueue       []string
+	WriteMsgs          []string
+	WriteDeadlineCalls int
+	CloseCalled        bool
+	Closed             chan struct{}
+	NewMsg             chan struct{}
 }
 
 func NewMockWSConnection() *MockWSConnection {
@@ -118,7 +119,12 @@ func (m *MockWSConnection) Close() error {
 	}
 	return nil
 }
-func (m *MockWSConnection) SetWriteDeadline(t time.Time) error { return nil }
+func (m *MockWSConnection) SetWriteDeadline(t time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.WriteDeadlineCalls++
+	return nil
+}
 
 type MockAuthProvider struct{}
 
@@ -237,4 +243,38 @@ func TestClient_Subscribe(t *testing.T) {
 
 	_ = mockConn.Close() // Fixed
 	cancel()
+}
+
+func TestClient_WriteOutboundBurstDrainsQueuedMessagesUnderOneDeadline(t *testing.T) {
+	mockConn := NewMockWSConnection()
+	client := &Client{
+		ID:        "test-client-burst",
+		conn:      mockConn,
+		send:      make(chan any, 10),
+		WriteWait: time.Second,
+	}
+
+	client.send <- []byte("second")
+	client.send <- []byte("third")
+
+	if err := client.writeOutboundBurst([]byte("first")); err != nil {
+		t.Fatalf("writeOutboundBurst failed: %v", err)
+	}
+
+	mockConn.mu.Lock()
+	defer mockConn.mu.Unlock()
+
+	if mockConn.WriteDeadlineCalls != 1 {
+		t.Fatalf("Expected one write deadline for burst, got %d", mockConn.WriteDeadlineCalls)
+	}
+
+	expected := []string{"first", "second", "third"}
+	if len(mockConn.WriteMsgs) != len(expected) {
+		t.Fatalf("Expected %d writes, got %d: %v", len(expected), len(mockConn.WriteMsgs), mockConn.WriteMsgs)
+	}
+	for i, msg := range expected {
+		if mockConn.WriteMsgs[i] != msg {
+			t.Fatalf("Write %d mismatch: expected %q, got %q", i, msg, mockConn.WriteMsgs[i])
+		}
+	}
 }

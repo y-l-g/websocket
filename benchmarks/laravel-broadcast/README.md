@@ -7,7 +7,7 @@ Compares Laravel broadcasting through Pogo WebSocket with Laravel Reverb. Each a
 Requires Docker with Compose.
 
 ```bash
-./benchmarks/laravel-broadcast/run.sh
+POGO_WS_HOT_PATH_METRICS=true ./benchmarks/laravel-broadcast/run.sh
 ```
 
 The runner performs a `docker compose down -v`, fresh `--no-cache` application image builds, an isolated Pogo run, an isolated Reverb run, and final cleanup. Console logs, image metadata, run metadata, and k6 JSON summaries are written to `benchmarks/laravel-broadcast/results/`.

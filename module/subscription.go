@@ -48,7 +48,11 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	if len(clients) == 0 {
 		return
 	}
+	waitStart := time.Now()
 	waitForFanoutCapacity(clients)
+	if sm.metrics != nil && sm.metrics.HotPathEnabled {
+		sm.metrics.FanoutBackpressureWait.Observe(time.Since(waitStart).Seconds())
+	}
 
 	start := time.Now()
 	if sm.metrics != nil && sm.metrics.HotPathEnabled {

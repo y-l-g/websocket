@@ -204,10 +204,16 @@ function scrapePrometheusMetrics() {
     text: res.body,
     derived: {
       fanoutDurationSeconds: histogramSummary(samples, "pogo_websocket_fanout_duration_seconds"),
+      fanoutBackpressureWaitSeconds: histogramSummary(samples, "pogo_websocket_fanout_backpressure_wait_seconds"),
       fanoutSubscribers: histogramSummary(samples, "pogo_websocket_fanout_subscribers"),
       clientQueueDepth: histogramSummary(samples, "pogo_websocket_client_queue_depth"),
+      clientQueueResidenceSeconds: histogramSummary(samples, "pogo_websocket_client_queue_residence_seconds"),
       writeDurationPreparedSeconds: histogramSummary(samples, "pogo_websocket_write_duration_seconds", { kind: "prepared" }),
       writeDurationBytesSeconds: histogramSummary(samples, "pogo_websocket_write_duration_seconds", { kind: "bytes" }),
+      writeTotalDurationPreparedSeconds: histogramSummary(samples, "pogo_websocket_write_total_duration_seconds", { kind: "prepared" }),
+      writeTotalDurationPreparedWithDeadlineSeconds: histogramSummary(samples, "pogo_websocket_write_total_duration_seconds", { kind: "prepared_with_deadline" }),
+      writeTotalDurationBytesSeconds: histogramSummary(samples, "pogo_websocket_write_total_duration_seconds", { kind: "bytes" }),
+      writeTotalDurationBytesWithDeadlineSeconds: histogramSummary(samples, "pogo_websocket_write_total_duration_seconds", { kind: "bytes_with_deadline" }),
       clientDroppedMessagesTotal: counterValue(samples, "pogo_websocket_client_dropped_messages_total"),
       brokerDroppedMessagesTotal: counterValue(samples, "pogo_websocket_broker_dropped_messages_total"),
       writeFailuresTotal: counterValue(samples, "pogo_websocket_write_failures_total"),
@@ -330,11 +336,26 @@ export function handleSummary(data) {
         fanoutDurationP95Ms: prometheus.derived.fanoutDurationSeconds?.p95 == null
           ? null
           : prometheus.derived.fanoutDurationSeconds.p95 * 1000,
+        fanoutBackpressureWaitP95Ms: prometheus.derived.fanoutBackpressureWaitSeconds?.p95 == null
+          ? null
+          : prometheus.derived.fanoutBackpressureWaitSeconds.p95 * 1000,
         clientQueueDepthP95: prometheus.derived.clientQueueDepth?.p95 ?? null,
         clientQueueDepthP99: prometheus.derived.clientQueueDepth?.p99 ?? null,
+        clientQueueResidenceP95Ms: prometheus.derived.clientQueueResidenceSeconds?.p95 == null
+          ? null
+          : prometheus.derived.clientQueueResidenceSeconds.p95 * 1000,
+        clientQueueResidenceP99Ms: prometheus.derived.clientQueueResidenceSeconds?.p99 == null
+          ? null
+          : prometheus.derived.clientQueueResidenceSeconds.p99 * 1000,
         writeDurationPreparedP95Ms: prometheus.derived.writeDurationPreparedSeconds?.p95 == null
           ? null
           : prometheus.derived.writeDurationPreparedSeconds.p95 * 1000,
+        writeTotalDurationPreparedP95Ms: prometheus.derived.writeTotalDurationPreparedSeconds?.p95 == null
+          ? null
+          : prometheus.derived.writeTotalDurationPreparedSeconds.p95 * 1000,
+        writeTotalDurationPreparedWithDeadlineP95Ms: prometheus.derived.writeTotalDurationPreparedWithDeadlineSeconds?.p95 == null
+          ? null
+          : prometheus.derived.writeTotalDurationPreparedWithDeadlineSeconds.p95 * 1000,
         clientDroppedMessagesTotal: prometheus.derived.clientDroppedMessagesTotal,
         brokerDroppedMessagesTotal: prometheus.derived.brokerDroppedMessagesTotal,
         writeFailuresTotal: prometheus.derived.writeFailuresTotal,
@@ -397,8 +418,23 @@ export function handleSummary(data) {
     if (diagnostics.clientQueueDepthP99 != null) {
       diagnosticLines.push(`client_queue_depth_p99=${diagnostics.clientQueueDepthP99}`);
     }
+    if (diagnostics.fanoutBackpressureWaitP95Ms != null) {
+      diagnosticLines.push(`fanout_backpressure_wait_p95_ms=${diagnostics.fanoutBackpressureWaitP95Ms}`);
+    }
+    if (diagnostics.clientQueueResidenceP95Ms != null) {
+      diagnosticLines.push(`client_queue_residence_p95_ms=${diagnostics.clientQueueResidenceP95Ms}`);
+    }
+    if (diagnostics.clientQueueResidenceP99Ms != null) {
+      diagnosticLines.push(`client_queue_residence_p99_ms=${diagnostics.clientQueueResidenceP99Ms}`);
+    }
     if (diagnostics.writeDurationPreparedP95Ms != null) {
       diagnosticLines.push(`prepared_write_duration_p95_ms=${diagnostics.writeDurationPreparedP95Ms}`);
+    }
+    if (diagnostics.writeTotalDurationPreparedP95Ms != null) {
+      diagnosticLines.push(`prepared_write_total_duration_p95_ms=${diagnostics.writeTotalDurationPreparedP95Ms}`);
+    }
+    if (diagnostics.writeTotalDurationPreparedWithDeadlineP95Ms != null) {
+      diagnosticLines.push(`prepared_write_total_duration_with_deadline_p95_ms=${diagnostics.writeTotalDurationPreparedWithDeadlineP95Ms}`);
     }
     diagnosticLines.push(`client_dropped_messages=${diagnostics.clientDroppedMessagesTotal}`);
     diagnosticLines.push(`broker_dropped_messages=${diagnostics.brokerDroppedMessagesTotal}`);
