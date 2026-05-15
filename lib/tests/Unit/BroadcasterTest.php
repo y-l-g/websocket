@@ -34,7 +34,8 @@ class BroadcasterTest extends TestCase
         $response = $broadcaster->auth($request);
 
         $this->assertIsArray($response);
-        $this->assertEquals('test-app:dummy_signature_for_client', $response['auth']);
+        $expectedSig = hash_hmac('sha256', 'private-test', 'super-secret');
+        $this->assertEquals('test-app:' . $expectedSig, $response['auth']);
     }
 
     public function testPresenceChannelReturnsUserData()

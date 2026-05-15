@@ -43,10 +43,15 @@ type WebsocketModule struct {
 	FanoutMode                  string  `json:"fanout_mode,omitempty"`
 	FanoutRoundSize             int     `json:"fanout_round_size,omitempty"`
 	FanoutRoundYield            string  `json:"fanout_round_yield,omitempty"`
+	ClientMsgRateLimit            float64 `json:"client_msg_rate_limit,omitempty"`
+	ClientMsgRateBurst            int     `json:"client_msg_rate_burst,omitempty"`
 	EnableCompression           bool    `json:"enable_compression,omitempty"`
 	WebhookURL                  string  `json:"webhook_url,omitempty"`
 	WebhookSecret               string  `json:"webhook_secret,omitempty"`
 	RedisHost                   string  `json:"redis_host,omitempty"`
+	RedisPassword               string  `json:"redis_password,omitempty"`
+	RedisDB                     int     `json:"redis_db,omitempty"`
+	RedisTLS                    bool    `json:"redis_tls,omitempty"`
 
 	// Timeouts
 	PingPeriod string `json:"ping_period,omitempty"`
@@ -115,6 +120,8 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		FanoutMode:                  m.FanoutMode,
 		FanoutRoundSize:             m.FanoutRoundSize,
 		FanoutRoundYield:            m.fanoutRoundYieldDuration,
+		ClientMsgRateLimit:          m.ClientMsgRateLimit,
+		ClientMsgRateBurst:          m.ClientMsgRateBurst,
 		EnableCompression:           m.EnableCompression,
 	}
 	m.hub = NewHub(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker, m.MaxConnections, m.NumShards, m.pingPeriodDuration, delivery)
@@ -213,6 +220,19 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	}
 	if m.FanoutRoundSize < 1 {
 		return fmt.Errorf("fanout_round_size must be greater than 0")
+	}
+
+	if m.ClientMsgRateLimit == 0 {
+		m.ClientMsgRateLimit = DefaultClientMsgRateLimit
+	}
+	if m.ClientMsgRateLimit < 0 {
+		return fmt.Errorf("client_msg_rate_limit must not be negative")
+	}
+	if m.ClientMsgRateBurst == 0 {
+		m.ClientMsgRateBurst = DefaultClientMsgRateBurst
+	}
+	if m.ClientMsgRateBurst < 1 {
+		return fmt.Errorf("client_msg_rate_burst must be greater than 0")
 	}
 
 	var err error
@@ -314,6 +334,20 @@ func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
 		}
 		m.EnableCompression = parsed
 	}
+	if value := os.Getenv("POGO_WS_CLIENT_MSG_RATE_LIMIT"); value != "" {
+		parsed, err := strconv.ParseFloat(value, 64)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_CLIENT_MSG_RATE_LIMIT: %v", err)
+		}
+		m.ClientMsgRateLimit = parsed
+	}
+	if value := os.Getenv("POGO_WS_CLIENT_MSG_RATE_BURST"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_CLIENT_MSG_RATE_BURST: %v", err)
+		}
+		m.ClientMsgRateBurst = parsed
+	}
 	return nil
 }
 
@@ -328,8 +362,8 @@ func (m *WebsocketModule) setupWorkers() error {
 
 func (m *WebsocketModule) setupBroker() (Broker, error) {
 	if m.RedisHost != "" {
-		m.logger.Info("Using Redis Broker", zap.String("host", m.RedisHost))
-		return NewRedisBroker(m.logger, m.RedisHost), nil
+		m.logger.Info("Using Redis Broker", zap.String("host", m.RedisHost), zap.Int("db", m.RedisDB), zap.Bool("tls", m.RedisTLS))
+		return NewRedisBroker(m.logger, m.RedisHost, m.RedisPassword, m.RedisDB, m.RedisTLS), nil
 	}
 	m.logger.Info("Using Memory Broker")
 	return NewMemoryBroker(m.logger, m.metrics), nil
@@ -345,6 +379,11 @@ func (m *WebsocketModule) Cleanup() error {
 }
 
 func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
+	if r.URL.Path == "/pogo/health" {
+		m.serveHealth(w)
+		return nil
+	}
+
 	if proto := r.URL.Query().Get("protocol"); proto != "" {
 		if proto < "5" {
 			http.Error(w, "Unsupported protocol version", http.StatusBadRequest)
@@ -389,6 +428,7 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 		WriteWait:      m.writeWaitDuration,
 		PongWait:       m.pongWaitDuration,
 		WriteBurstSize: m.WriteBurstSize,
+		msgLimiter:     rate.NewLimiter(rate.Limit(m.ClientMsgRateLimit), m.ClientMsgRateBurst),
 	}
 
 	m.hub.Register(client)
@@ -397,6 +437,20 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 	client.readPump()
 
 	return nil
+}
+
+func (m *WebsocketModule) serveHealth(w http.ResponseWriter) {
+	status := "ok"
+	code := http.StatusOK
+
+	if m.hub == nil {
+		status = "hub_not_initialized"
+		code = http.StatusServiceUnavailable
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	_, _ = w.Write([]byte(`{"status":"` + status + `"}`))
 }
 
 func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -542,6 +596,20 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Errf("invalid boolean: %v", err)
 				}
 				m.EnableCompression = enabled
+			case "client_msg_rate_limit":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				if _, err := fmt.Sscanf(d.Val(), "%f", &m.ClientMsgRateLimit); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+			case "client_msg_rate_burst":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				if _, err := fmt.Sscanf(d.Val(), "%d", &m.ClientMsgRateBurst); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
 			case "ping_period":
 				if !d.NextArg() {
 					return d.ArgErr()
@@ -572,6 +640,25 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				m.RedisHost = d.Val()
+			case "redis_password":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.RedisPassword = d.Val()
+			case "redis_db":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				if _, err := fmt.Sscanf(d.Val(), "%d", &m.RedisDB); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+			case "redis_tls":
+				m.RedisTLS = true
+				if d.NextArg() {
+					if _, err := fmt.Sscanf(d.Val(), "%t", &m.RedisTLS); err != nil {
+						return d.Errf("invalid boolean: %v", err)
+					}
+				}
 			}
 		}
 	}

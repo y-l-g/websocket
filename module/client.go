@@ -12,6 +12,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/y-l-g/websocket/module/internal/protocol"
 	"go.uber.org/zap"
+	"golang.org/x/time/rate"
 )
 
 const (
@@ -50,6 +51,7 @@ type Client struct {
 	WriteWait      time.Duration
 	PongWait       time.Duration
 	WriteBurstSize int
+	msgLimiter     *rate.Limiter
 }
 
 // AddShard marks that the client has a subscription on the given shard ID.
@@ -151,6 +153,19 @@ func (c *Client) readPump() {
 }
 
 func (c *Client) handleMessage(message []byte) {
+	if c.msgLimiter != nil && !c.msgLimiter.Allow() {
+		c.hub.logger.Warn("Client message rate limit exceeded", zap.String("id", c.ID))
+		errMsg, _ := json.Marshal(map[string]interface{}{
+			"event": protocol.EventError,
+			"data": map[string]interface{}{
+				"code":    protocol.ErrorGenericReconnect,
+				"message": "Message rate limit exceeded",
+			},
+		})
+		c.Send(errMsg)
+		return
+	}
+
 	var msg ClientMessage
 	if err := json.Unmarshal(message, &msg); err != nil {
 		c.hub.logger.Warn("Invalid JSON", zap.String("id", c.ID))

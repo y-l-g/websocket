@@ -16,8 +16,6 @@ func init() {
 	frankenphp.RegisterExtension(unsafe.Pointer(&C.websocket_module_entry))
 }
 
-var channelList []string
-
 //export pogo_websocket_publish
 func pogo_websocket_publish(appId *C.zend_string, channel *C.zend_string, event *C.zend_string, data *C.zend_string) bool {
 	entryAt := time.Now()

@@ -55,7 +55,7 @@ class Broadcaster extends BaseBroadcaster
         }
 
         $response = [
-            'auth' => $this->appId . ':dummy_signature_for_client',
+            'auth' => $this->signChannelAuth($stringChannelName),
         ];
 
         if (str_starts_with($stringChannelName, 'presence-')) {
@@ -149,6 +149,7 @@ class Broadcaster extends BaseBroadcaster
 
         $payloadJson = $this->encodeBroadcastPayload($payload);
         if ($payloadJson === false) {
+            $this->logBroadcastError('payload_encode_failed', $channels, $event);
             return;
         }
 
@@ -170,20 +171,40 @@ class Broadcaster extends BaseBroadcaster
                     if ($result) {
                         return;
                     }
+                    $this->logBroadcastError('broadcast_multi_failed', $validChannels, $eventStr);
+                } else {
+                    $this->logBroadcastError('channels_json_encode_failed', $channels, $eventStr);
                 }
             }
         }
 
         if (!function_exists('pogo_websocket_publish')) {
+            $this->logBroadcastError('pogo_extension_not_loaded', $channels, $eventStr);
             return;
         }
 
         foreach ($channels as $channel) {
             $channelStr = (string) $channel;
             if ($channelStr !== '' && $eventStr !== '') {
-                pogo_websocket_publish($this->appId, $channelStr, $eventStr, $payloadJson);
+                $result = pogo_websocket_publish($this->appId, $channelStr, $eventStr, $payloadJson);
+                if (!$result) {
+                    $this->logBroadcastError('publish_failed', [$channelStr], $eventStr);
+                }
             }
         }
+    }
+
+    /**
+     * @param  array<string>  $channels
+     */
+    protected function logBroadcastError(string $reason, array $channels, string $event): void
+    {
+        error_log(sprintf(
+            '[Pogo WebSocket] Broadcast failed: reason=%s event=%s channels=%s',
+            $reason,
+            $event,
+            implode(',', $channels)
+        ));
     }
 
     /**
@@ -209,5 +230,11 @@ class Broadcaster extends BaseBroadcaster
             && array_key_exists('createdAt', $payload)
             && array_key_exists('sentAt', $payload)
             && array_key_exists('payload', $payload);
+    }
+
+    protected function signChannelAuth(string $channelName): string
+    {
+        $signature = hash_hmac('sha256', $channelName, $this->secret);
+        return $this->appId . ':' . $signature;
     }
 }

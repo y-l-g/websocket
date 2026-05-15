@@ -2,6 +2,8 @@ package websocket
 
 import (
 	"context"
+	"crypto/tls"
+	"fmt"
 	"math"
 	"time"
 
@@ -16,16 +18,24 @@ type RedisBroker struct {
 	logger *zap.Logger
 }
 
-func NewRedisBroker(logger *zap.Logger, addr string) *RedisBroker {
+func NewRedisBroker(logger *zap.Logger, addr, password string, db int, useTLS bool) *RedisBroker {
 	if addr == "" {
 		addr = "localhost:6379"
 	}
 
-	rdb := redis.NewClient(&redis.Options{
+	opts := &redis.Options{
 		Addr:         addr,
+		Password:     password,
+		DB:           db,
 		ReadTimeout:  3 * time.Second,
 		WriteTimeout: 3 * time.Second,
-	})
+	}
+
+	if useTLS {
+		opts.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
+	}
+
+	rdb := redis.NewClient(opts)
 
 	return &RedisBroker{
 		client: rdb,
@@ -38,7 +48,29 @@ func (r *RedisBroker) Publish(ctx context.Context, msg *BroadcastMessage) error 
 	if err != nil {
 		return err
 	}
-	return r.client.Publish(ctx, RedisChannelName, data).Err()
+
+	var lastErr error
+	for attempt := 0; attempt <= 3; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt-1)) * 100 * time.Millisecond
+			if backoff > 2*time.Second {
+				backoff = 2 * time.Second
+			}
+			select {
+			case <-time.After(backoff):
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		}
+
+		err = r.client.Publish(ctx, RedisChannelName, data).Err()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+
+	return fmt.Errorf("redis publish failed after 4 attempts: %w", lastErr)
 }
 
 func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, error) {

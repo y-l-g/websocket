@@ -18,6 +18,8 @@ const (
 	DefaultFanoutMode                      = "paced"
 	DefaultFanoutRoundSize                 = 8
 	DefaultFanoutRoundYield  time.Duration = 0
+	DefaultClientMsgRateLimit              = 50
+	DefaultClientMsgRateBurst              = 20
 )
 
 var (
@@ -66,6 +68,8 @@ type Hub struct {
 	fanoutMode                  string
 	fanoutRoundSize             int
 	fanoutRoundYield            time.Duration
+	clientMsgRateLimit          float64
+	clientMsgRateBurst          int
 
 	// Synchronization
 	clientsMu sync.RWMutex
@@ -109,6 +113,8 @@ type DeliveryConfig struct {
 	FanoutMode                  string
 	FanoutRoundSize             int
 	FanoutRoundYield            time.Duration
+	ClientMsgRateLimit          float64
+	ClientMsgRateBurst          int
 	EnableCompression           bool
 }
 
@@ -121,8 +127,10 @@ func DefaultDeliveryConfig() DeliveryConfig {
 		FanoutMode:                  DefaultFanoutMode,
 		FanoutRoundSize:             DefaultFanoutRoundSize,
 		FanoutRoundYield:            DefaultFanoutRoundYield,
+		ClientMsgRateLimit:          DefaultClientMsgRateLimit,
+		ClientMsgRateBurst:          DefaultClientMsgRateBurst,
+		EnableCompression:           false,
 	}
-}
 
 func (c DeliveryConfig) withDefaults() DeliveryConfig {
 	defaults := DefaultDeliveryConfig()
@@ -146,6 +154,12 @@ func (c DeliveryConfig) withDefaults() DeliveryConfig {
 	}
 	if c.FanoutRoundYield < 0 {
 		c.FanoutRoundYield = defaults.FanoutRoundYield
+	}
+	if c.ClientMsgRateLimit <= 0 {
+		c.ClientMsgRateLimit = defaults.ClientMsgRateLimit
+	}
+	if c.ClientMsgRateBurst <= 0 {
+		c.ClientMsgRateBurst = defaults.ClientMsgRateBurst
 	}
 	return c
 }
@@ -185,6 +199,8 @@ func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metr
 		fanoutMode:                  delivery.FanoutMode,
 		fanoutRoundSize:             delivery.FanoutRoundSize,
 		fanoutRoundYield:            delivery.FanoutRoundYield,
+		clientMsgRateLimit:          delivery.ClientMsgRateLimit,
+		clientMsgRateBurst:          delivery.ClientMsgRateBurst,
 		done:                        make(chan struct{}),
 		clientMessage:               make(chan *ClientMessageWrapper),
 		subscribe:                   make(chan *Subscription),
@@ -411,8 +427,10 @@ func (h *Hub) Run() {
 			h.logger.Info("Hub: shutting down, draining connections...")
 			_ = h.broker.Close()
 
+			closeMsg := websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutting down")
 			h.clientsMu.Lock()
 			for c := range h.clients {
+				_ = c.conn.WriteControl(websocket.CloseMessage, closeMsg, time.Now().Add(2*time.Second))
 				_ = c.conn.Close()
 			}
 			h.clientsMu.Unlock()
