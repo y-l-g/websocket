@@ -131,6 +131,7 @@ func DefaultDeliveryConfig() DeliveryConfig {
 		ClientMsgRateBurst:          DefaultClientMsgRateBurst,
 		EnableCompression:           false,
 	}
+}
 
 func (c DeliveryConfig) withDefaults() DeliveryConfig {
 	defaults := DefaultDeliveryConfig()

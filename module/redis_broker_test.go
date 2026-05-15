@@ -18,7 +18,7 @@ func TestRedisBroker_PubSub(t *testing.T) {
 	defer mr.Close()
 
 	logger := zap.NewNop()
-	broker := NewRedisBroker(logger, mr.Addr())
+	broker := NewRedisBroker(logger, mr.Addr(), "", 0, false)
 	defer func() { _ = broker.Close() }() // Fixed
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -61,7 +61,7 @@ func TestRedisBroker_Reconnection(t *testing.T) {
 	}
 
 	logger := zap.NewNop()
-	broker := NewRedisBroker(logger, mr.Addr())
+	broker := NewRedisBroker(logger, mr.Addr(), "", 0, false)
 	defer func() { _ = broker.Close() }() // Fixed
 
 	ctx, cancel := context.WithCancel(context.Background())
