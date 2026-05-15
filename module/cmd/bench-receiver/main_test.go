@@ -101,3 +101,17 @@ pogo_websocket_write_complete_to_payload_sent_seconds_count 100
 		t.Fatalf("p95 = %v, want 0.05", got)
 	}
 }
+
+func TestPrometheusGaugeValue(t *testing.T) {
+	text := `
+pogo_websocket_delivery_config{key="write_burst_size"} 8
+pogo_websocket_delivery_config{key="enable_compression"} 1
+`
+
+	if got := prometheusGaugeValue(text, "pogo_websocket_delivery_config", "write_burst_size"); got != 8 {
+		t.Fatalf("write_burst_size = %v, want 8", got)
+	}
+	if got := prometheusGaugeValue(text, "pogo_websocket_delivery_config", "enable_compression"); got != 1 {
+		t.Fatalf("enable_compression = %v, want 1", got)
+	}
+}

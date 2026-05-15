@@ -74,7 +74,12 @@ type latencySummary struct {
 }
 
 type diagnostics struct {
-	WriteCompleteFromSentP95Ms float64 `json:"writeCompleteFromSentP95Ms"`
+	WriteCompleteFromSentP95Ms  float64 `json:"writeCompleteFromSentP95Ms"`
+	OutboundQueueSize           float64 `json:"outboundQueueSize"`
+	WriteBurstSize              float64 `json:"writeBurstSize"`
+	FanoutBackpressureThreshold float64 `json:"fanoutBackpressureThreshold"`
+	FanoutBackpressureMaxWaitMs float64 `json:"fanoutBackpressureMaxWaitMs"`
+	EnableCompression           float64 `json:"enableCompression"`
 }
 
 type errorSummary struct {
@@ -446,7 +451,33 @@ func scrapeDiagnostics(cfg config) (*diagnostics, error) {
 	if !ok {
 		return nil, nil
 	}
-	return &diagnostics{WriteCompleteFromSentP95Ms: p95 * 1000}, nil
+	return &diagnostics{
+		WriteCompleteFromSentP95Ms:  p95 * 1000,
+		OutboundQueueSize:           prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "outbound_queue_size"),
+		WriteBurstSize:              prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "write_burst_size"),
+		FanoutBackpressureThreshold: prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "fanout_backpressure_threshold"),
+		FanoutBackpressureMaxWaitMs: prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "fanout_backpressure_max_wait_seconds") * 1000,
+		EnableCompression:           prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "enable_compression"),
+	}, nil
+}
+
+func prometheusGaugeValue(text, name, key string) float64 {
+	needle := name + `{key="` + key + `"}`
+	for _, line := range strings.Split(text, "\n") {
+		if !strings.HasPrefix(line, needle+" ") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0
+		}
+		value, err := strconv.ParseFloat(fields[1], 64)
+		if err != nil || !isFinite(value) {
+			return 0
+		}
+		return value
+	}
+	return 0
 }
 
 func prometheusHistogramQuantile(text, baseName string, q float64) (float64, bool) {

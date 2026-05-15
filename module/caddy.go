@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"runtime"
+	"strconv"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -24,19 +26,24 @@ func init() {
 }
 
 type WebsocketModule struct {
-	AppID             string  `json:"app_id,omitempty"`
-	AuthPath          string  `json:"auth_path,omitempty"`
-	AuthScript        string  `json:"auth_script,omitempty"`
-	NumWorkers        int     `json:"num_workers,omitempty"`
-	MaxConnections    int     `json:"max_connections,omitempty"`
-	MaxAuthBody       int     `json:"max_auth_body,omitempty"`
-	MaxConcurrentAuth int     `json:"max_concurrent_auth,omitempty"`
-	NumShards         int     `json:"num_shards,omitempty"`
-	HandshakeRate     float64 `json:"handshake_rate,omitempty"`  // New
-	HandshakeBurst    int     `json:"handshake_burst,omitempty"` // New
-	WebhookURL        string  `json:"webhook_url,omitempty"`
-	WebhookSecret     string  `json:"webhook_secret,omitempty"`
-	RedisHost         string  `json:"redis_host,omitempty"`
+	AppID                       string  `json:"app_id,omitempty"`
+	AuthPath                    string  `json:"auth_path,omitempty"`
+	AuthScript                  string  `json:"auth_script,omitempty"`
+	NumWorkers                  int     `json:"num_workers,omitempty"`
+	MaxConnections              int     `json:"max_connections,omitempty"`
+	MaxAuthBody                 int     `json:"max_auth_body,omitempty"`
+	MaxConcurrentAuth           int     `json:"max_concurrent_auth,omitempty"`
+	NumShards                   int     `json:"num_shards,omitempty"`
+	HandshakeRate               float64 `json:"handshake_rate,omitempty"`  // New
+	HandshakeBurst              int     `json:"handshake_burst,omitempty"` // New
+	OutboundQueueSize           int     `json:"outbound_queue_size,omitempty"`
+	WriteBurstSize              int     `json:"write_burst_size,omitempty"`
+	FanoutBackpressureThreshold int     `json:"fanout_backpressure_threshold,omitempty"`
+	FanoutBackpressureMaxWait   string  `json:"fanout_backpressure_max_wait,omitempty"`
+	EnableCompression           bool    `json:"enable_compression,omitempty"`
+	WebhookURL                  string  `json:"webhook_url,omitempty"`
+	WebhookSecret               string  `json:"webhook_secret,omitempty"`
+	RedisHost                   string  `json:"redis_host,omitempty"`
 
 	// Timeouts
 	PingPeriod string `json:"ping_period,omitempty"`
@@ -44,9 +51,10 @@ type WebsocketModule struct {
 	PongWait   string `json:"pong_wait,omitempty"`
 
 	// Parsed Durations
-	pingPeriodDuration time.Duration
-	writeWaitDuration  time.Duration
-	pongWaitDuration   time.Duration
+	pingPeriodDuration                time.Duration
+	writeWaitDuration                 time.Duration
+	pongWaitDuration                  time.Duration
+	fanoutBackpressureMaxWaitDuration time.Duration
 
 	hub          *Hub
 	metrics      *Metrics
@@ -95,7 +103,15 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		return err
 	}
 
-	m.hub = NewHub(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker, m.MaxConnections, m.NumShards, m.pingPeriodDuration)
+	delivery := DeliveryConfig{
+		OutboundQueueSize:           m.OutboundQueueSize,
+		WriteBurstSize:              m.WriteBurstSize,
+		FanoutBackpressureThreshold: m.FanoutBackpressureThreshold,
+		FanoutBackpressureMaxWait:   m.fanoutBackpressureMaxWaitDuration,
+		EnableCompression:           m.EnableCompression,
+	}
+	m.hub = NewHub(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker, m.MaxConnections, m.NumShards, m.pingPeriodDuration, delivery)
+	m.metrics.SetDeliveryConfig(delivery.withDefaults())
 
 	if err := RegisterHub(m.AppID, m.hub); err != nil {
 		return err
@@ -104,9 +120,10 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 	go m.hub.Run()
 
 	m.upgrader = websocket.Upgrader{
-		ReadBufferSize:  1024,
-		WriteBufferSize: 1024,
-		CheckOrigin:     func(r *http.Request) bool { return true },
+		ReadBufferSize:    1024,
+		WriteBufferSize:   1024,
+		CheckOrigin:       func(r *http.Request) bool { return true },
+		EnableCompression: m.EnableCompression,
 	}
 
 	if m.HandshakeRate >= 0 {
@@ -156,6 +173,29 @@ func (m *WebsocketModule) validateAndDefaults() error {
 		}
 	}
 
+	defaultDelivery := DefaultDeliveryConfig()
+	if err := m.applyDeliveryEnvOverrides(); err != nil {
+		return err
+	}
+	if m.OutboundQueueSize == 0 {
+		m.OutboundQueueSize = defaultDelivery.OutboundQueueSize
+	}
+	if m.OutboundQueueSize < 1 {
+		return fmt.Errorf("outbound_queue_size must be greater than 0")
+	}
+	if m.WriteBurstSize == 0 {
+		m.WriteBurstSize = defaultDelivery.WriteBurstSize
+	}
+	if m.WriteBurstSize < 1 {
+		return fmt.Errorf("write_burst_size must be greater than 0")
+	}
+	if m.FanoutBackpressureThreshold == 0 {
+		m.FanoutBackpressureThreshold = defaultDelivery.FanoutBackpressureThreshold
+	}
+	if m.FanoutBackpressureThreshold < 1 {
+		return fmt.Errorf("fanout_backpressure_threshold must be greater than 0")
+	}
+
 	var err error
 	if m.PingPeriod == "" {
 		m.pingPeriodDuration = DefaultPingPeriod
@@ -184,6 +224,53 @@ func (m *WebsocketModule) validateAndDefaults() error {
 		}
 	}
 
+	if m.FanoutBackpressureMaxWait == "" {
+		m.fanoutBackpressureMaxWaitDuration = defaultDelivery.FanoutBackpressureMaxWait
+	} else {
+		m.fanoutBackpressureMaxWaitDuration, err = time.ParseDuration(m.FanoutBackpressureMaxWait)
+		if err != nil {
+			return fmt.Errorf("invalid fanout_backpressure_max_wait: %v", err)
+		}
+		if m.fanoutBackpressureMaxWaitDuration < 0 {
+			return fmt.Errorf("fanout_backpressure_max_wait must not be negative")
+		}
+	}
+
+	return nil
+}
+
+func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
+	if value := os.Getenv("POGO_WS_OUTBOUND_QUEUE_SIZE"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_OUTBOUND_QUEUE_SIZE: %v", err)
+		}
+		m.OutboundQueueSize = parsed
+	}
+	if value := os.Getenv("POGO_WS_WRITE_BURST_SIZE"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_WRITE_BURST_SIZE: %v", err)
+		}
+		m.WriteBurstSize = parsed
+	}
+	if value := os.Getenv("POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD: %v", err)
+		}
+		m.FanoutBackpressureThreshold = parsed
+	}
+	if value := os.Getenv("POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT"); value != "" {
+		m.FanoutBackpressureMaxWait = value
+	}
+	if value := os.Getenv("POGO_WS_ENABLE_COMPRESSION"); value != "" {
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_ENABLE_COMPRESSION: %v", err)
+		}
+		m.EnableCompression = parsed
+	}
 	return nil
 }
 
@@ -240,6 +327,7 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 		m.logger.Error("Upgrade failed", zap.Error(err))
 		return err
 	}
+	conn.EnableWriteCompression(m.EnableCompression)
 
 	nano := time.Now().UnixNano()
 	clientID := fmt.Sprintf("%d.%d", nano/1e9, nano%1e9)
@@ -247,16 +335,17 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 	ctx, cancel := context.WithCancel(r.Context())
 
 	client := &Client{
-		ID:         clientID,
-		hub:        m.hub,
-		conn:       conn,
-		send:       make(chan any, DefaultOutboundQueueSize),
-		Headers:    headers,
-		ctx:        ctx,
-		cancel:     cancel,
-		PingPeriod: m.pingPeriodDuration,
-		WriteWait:  m.writeWaitDuration,
-		PongWait:   m.pongWaitDuration,
+		ID:             clientID,
+		hub:            m.hub,
+		conn:           conn,
+		send:           make(chan any, m.OutboundQueueSize),
+		Headers:        headers,
+		ctx:            ctx,
+		cancel:         cancel,
+		PingPeriod:     m.pingPeriodDuration,
+		WriteWait:      m.writeWaitDuration,
+		PongWait:       m.pongWaitDuration,
+		WriteBurstSize: m.WriteBurstSize,
 	}
 
 	m.hub.Register(client)
@@ -349,6 +438,48 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Errf("invalid number: %v", err)
 				}
 				m.HandshakeBurst = c
+			case "outbound_queue_size":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				var c int
+				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+				m.OutboundQueueSize = c
+			case "write_burst_size":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				var c int
+				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+				m.WriteBurstSize = c
+			case "fanout_backpressure_threshold":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				var c int
+				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+				m.FanoutBackpressureThreshold = c
+			case "fanout_backpressure_max_wait":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.FanoutBackpressureMaxWait = d.Val()
+			case "enable_compression":
+				if !d.NextArg() {
+					m.EnableCompression = true
+					continue
+				}
+				var enabled bool
+				if _, err := fmt.Sscanf(d.Val(), "%t", &enabled); err != nil {
+					return d.Errf("invalid boolean: %v", err)
+				}
+				m.EnableCompression = enabled
 			case "ping_period":
 				if !d.NextArg() {
 					return d.ArgErr()

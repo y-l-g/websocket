@@ -38,7 +38,7 @@ func TestHubSharding(t *testing.T) {
 
 	metrics := NewMetrics(prometheus.NewRegistry())
 
-	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, &MockBroker{}, 10000, 32, DefaultPingPeriod)
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, &MockBroker{}, 10000, 32, DefaultPingPeriod, DefaultDeliveryConfig())
 
 	channel1 := "private-user.1"
 	shard1 := hub.getShard(channel1)
@@ -78,7 +78,7 @@ func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 
 	metrics := NewMetrics(prometheus.NewRegistry())
 	broker := &MockBroker{published: make(chan *BroadcastMessage, 1), delay: 5 * time.Millisecond}
-	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, broker, 10000, 1, DefaultPingPeriod)
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, broker, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
 
 	phpBroadcastAt := float64(time.Now().Add(-time.Millisecond).UnixNano()) / float64(time.Millisecond)
 	data, err := json.Marshal(map[string]float64{"pogoPhpBroadcastAt": phpBroadcastAt})
@@ -150,7 +150,7 @@ func TestHubAndShardDelayMetricsRecordNonNegativeDurations(t *testing.T) {
 	defer cancel()
 
 	metrics := NewMetrics(prometheus.NewRegistry())
-	shard := NewHubShard(0, logger, ctx, metrics, nil)
+	shard := NewHubShard(0, logger, ctx, metrics, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait)
 	go shard.Run()
 
 	msg := &BroadcastMessage{

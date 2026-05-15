@@ -238,6 +238,14 @@ function scrapePrometheusMetrics() {
       dataWriteFailuresTotal:
         counterValue(samples, "pogo_websocket_write_failures_total", { kind: "prepared" }) +
         counterValue(samples, "pogo_websocket_write_failures_total", { kind: "bytes" }),
+      deliveryConfig: {
+        outboundQueueSize: counterValue(samples, "pogo_websocket_delivery_config", { key: "outbound_queue_size" }),
+        writeBurstSize: counterValue(samples, "pogo_websocket_delivery_config", { key: "write_burst_size" }),
+        fanoutBackpressureThreshold: counterValue(samples, "pogo_websocket_delivery_config", { key: "fanout_backpressure_threshold" }),
+        fanoutBackpressureMaxWaitMs:
+          counterValue(samples, "pogo_websocket_delivery_config", { key: "fanout_backpressure_max_wait_seconds" }) * 1000,
+        enableCompression: counterValue(samples, "pogo_websocket_delivery_config", { key: "enable_compression" }),
+      },
     },
   };
 }
@@ -428,6 +436,11 @@ export function handleSummary(data) {
         brokerDroppedMessagesTotal: prometheus.derived.brokerDroppedMessagesTotal,
         writeFailuresTotal: prometheus.derived.writeFailuresTotal,
         dataWriteFailuresTotal: prometheus.derived.dataWriteFailuresTotal,
+        outboundQueueSize: prometheus.derived.deliveryConfig.outboundQueueSize,
+        writeBurstSize: prometheus.derived.deliveryConfig.writeBurstSize,
+        fanoutBackpressureThreshold: prometheus.derived.deliveryConfig.fanoutBackpressureThreshold,
+        fanoutBackpressureMaxWaitMs: prometheus.derived.deliveryConfig.fanoutBackpressureMaxWaitMs,
+        enableCompression: prometheus.derived.deliveryConfig.enableCompression,
       }
     : null;
 
@@ -533,6 +546,11 @@ export function handleSummary(data) {
     if (diagnostics.writeTotalDurationPreparedWithDeadlineP95Ms != null) {
       diagnosticLines.push(`prepared_write_total_duration_with_deadline_p95_ms=${diagnostics.writeTotalDurationPreparedWithDeadlineP95Ms}`);
     }
+    diagnosticLines.push(`delivery_outbound_queue_size=${diagnostics.outboundQueueSize}`);
+    diagnosticLines.push(`delivery_write_burst_size=${diagnostics.writeBurstSize}`);
+    diagnosticLines.push(`delivery_fanout_backpressure_threshold=${diagnostics.fanoutBackpressureThreshold}`);
+    diagnosticLines.push(`delivery_fanout_backpressure_max_wait_ms=${diagnostics.fanoutBackpressureMaxWaitMs}`);
+    diagnosticLines.push(`delivery_enable_compression=${diagnostics.enableCompression}`);
     diagnosticLines.push(`client_dropped_messages=${diagnostics.clientDroppedMessagesTotal}`);
     diagnosticLines.push(`broker_dropped_messages=${diagnostics.brokerDroppedMessagesTotal}`);
     diagnosticLines.push(`data_write_failures=${diagnostics.dataWriteFailuresTotal}`);

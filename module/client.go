@@ -15,11 +15,11 @@ import (
 )
 
 const (
-	DefaultWriteWait  = 10 * time.Second
-	DefaultPongWait   = 60 * time.Second
-	DefaultPingPeriod = (DefaultPongWait * 9) / 10
-	maxMessageSize    = 512
-	maxWriteBurst     = 64
+	DefaultWriteWait      = 10 * time.Second
+	DefaultPongWait       = 60 * time.Second
+	DefaultPingPeriod     = (DefaultPongWait * 9) / 10
+	maxMessageSize        = 512
+	DefaultWriteBurstSize = 64
 )
 
 type WSConnection interface {
@@ -46,9 +46,10 @@ type Client struct {
 
 	shardMask uint64
 
-	PingPeriod time.Duration
-	WriteWait  time.Duration
-	PongWait   time.Duration
+	PingPeriod     time.Duration
+	WriteWait      time.Duration
+	PongWait       time.Duration
+	WriteBurstSize int
 }
 
 // AddShard marks that the client has a subscription on the given shard ID.
@@ -314,7 +315,11 @@ func (c *Client) writeOutboundBurst(first any) error {
 		return err
 	}
 
-	for i := 1; i < maxWriteBurst; i++ {
+	burstSize := c.WriteBurstSize
+	if burstSize <= 0 {
+		burstSize = DefaultWriteBurstSize
+	}
+	for i := 1; i < burstSize; i++ {
 		select {
 		case message, ok := <-c.send:
 			if !ok {

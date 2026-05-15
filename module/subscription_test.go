@@ -15,6 +15,8 @@ func newTestSubManager() *SubscriptionManager {
 		zap.NewNop(),
 		NewMetrics(prometheus.NewRegistry()),
 		nil,
+		DefaultFanoutBackpressureThreshold,
+		DefaultFanoutBackpressureMaxWait,
 	)
 }
 
@@ -122,9 +124,9 @@ func TestMemberTracking(t *testing.T) {
 }
 
 func TestBroadcastToChannelWaitsForQueuedClients(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil)
-	client := &Client{ID: "c1", send: make(chan any, fanoutBackpressureThreshold+1)}
-	for i := 0; i < fanoutBackpressureThreshold; i++ {
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait)
+	client := &Client{ID: "c1", send: make(chan any, DefaultFanoutBackpressureThreshold+1)}
+	for i := 0; i < DefaultFanoutBackpressureThreshold; i++ {
 		client.send <- []byte("queued")
 	}
 	sm.channels["public-test"] = map[*Client]bool{client: true}
@@ -158,9 +160,9 @@ func TestBroadcastToChannelWaitsForQueuedClients(t *testing.T) {
 }
 
 func TestBroadcastToChannelGivesUpOnQueuedClients(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil)
-	client := &Client{ID: "c1", send: make(chan any, fanoutBackpressureThreshold+1)}
-	for i := 0; i < fanoutBackpressureThreshold; i++ {
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait)
+	client := &Client{ID: "c1", send: make(chan any, DefaultFanoutBackpressureThreshold+1)}
+	for i := 0; i < DefaultFanoutBackpressureThreshold; i++ {
 		client.send <- []byte("queued")
 	}
 	sm.channels["public-test"] = map[*Client]bool{client: true}
@@ -173,14 +175,38 @@ func TestBroadcastToChannelGivesUpOnQueuedClients(t *testing.T) {
 	})
 
 	elapsed := time.Since(start)
-	if elapsed < fanoutBackpressureMaxWait {
+	if elapsed < DefaultFanoutBackpressureMaxWait {
 		t.Fatalf("Expected broadcast to wait until max wait, only waited %s", elapsed)
 	}
 	if elapsed > 50*time.Millisecond {
 		t.Fatalf("Expected bounded wait, waited %s", elapsed)
 	}
 
-	if len(client.send) != fanoutBackpressureThreshold+1 {
+	if len(client.send) != DefaultFanoutBackpressureThreshold+1 {
 		t.Fatalf("Expected broadcast to enqueue after bounded wait, queue depth is %d", len(client.send))
+	}
+}
+
+func TestBroadcastToChannelHonorsConfiguredBackpressure(t *testing.T) {
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, 2, 3*time.Millisecond)
+	client := &Client{ID: "c1", send: make(chan any, 3)}
+	for i := 0; i < 2; i++ {
+		client.send <- []byte("queued")
+	}
+	sm.channels["public-test"] = map[*Client]bool{client: true}
+
+	start := time.Now()
+	sm.BroadcastToChannel(&BroadcastMessage{
+		Channel: "public-test",
+		Event:   "bench.event",
+		Data:    json.RawMessage(`{}`),
+	})
+
+	elapsed := time.Since(start)
+	if elapsed < 3*time.Millisecond {
+		t.Fatalf("Expected broadcast to wait for configured max wait, only waited %s", elapsed)
+	}
+	if elapsed > 50*time.Millisecond {
+		t.Fatalf("Expected bounded wait, waited %s", elapsed)
 	}
 }

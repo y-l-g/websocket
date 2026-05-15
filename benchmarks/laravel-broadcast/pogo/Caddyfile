@@ -30,6 +30,11 @@
             auth_path       /pogo/auth
             auth_script     "{$APP_PUBLIC_PATH}/pogo-auth-worker.php"
             num_workers     2
+            outbound_queue_size {$POGO_WS_OUTBOUND_QUEUE_SIZE:256}
+            write_burst_size {$POGO_WS_WRITE_BURST_SIZE:64}
+            fanout_backpressure_threshold {$POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD:16}
+            fanout_backpressure_max_wait {$POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT:10ms}
+            enable_compression {$POGO_WS_ENABLE_COMPRESSION:false}
 
             webhook_url     http://localhost/webhook
             webhook_secret  super-secret-key

@@ -29,6 +29,7 @@ type Metrics struct {
 	WriteTotalDuration     *prometheus.HistogramVec
 	WriteCompleteFromSent  prometheus.Histogram
 	WriteFailures          *prometheus.CounterVec
+	DeliveryConfig         *prometheus.GaugeVec
 	HotPathEnabled         bool
 }
 
@@ -153,6 +154,11 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "write_failures_total",
 			Help:      "Total websocket write failures by message kind",
 		}, []string{"kind"}),
+		DeliveryConfig: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: "pogo_websocket",
+			Name:      "delivery_config",
+			Help:      "Effective Pogo websocket delivery tuning configuration by key",
+		}, []string{"key"}),
 	}
 
 	if reg != nil {
@@ -177,9 +183,25 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		_ = reg.Register(m.WriteTotalDuration)
 		_ = reg.Register(m.WriteCompleteFromSent)
 		_ = reg.Register(m.WriteFailures)
+		_ = reg.Register(m.DeliveryConfig)
 	}
 
 	return m
+}
+
+func (m *Metrics) SetDeliveryConfig(config DeliveryConfig) {
+	if m == nil || m.DeliveryConfig == nil {
+		return
+	}
+	m.DeliveryConfig.WithLabelValues("outbound_queue_size").Set(float64(config.OutboundQueueSize))
+	m.DeliveryConfig.WithLabelValues("write_burst_size").Set(float64(config.WriteBurstSize))
+	m.DeliveryConfig.WithLabelValues("fanout_backpressure_threshold").Set(float64(config.FanoutBackpressureThreshold))
+	m.DeliveryConfig.WithLabelValues("fanout_backpressure_max_wait_seconds").Set(config.FanoutBackpressureMaxWait.Seconds())
+	if config.EnableCompression {
+		m.DeliveryConfig.WithLabelValues("enable_compression").Set(1)
+	} else {
+		m.DeliveryConfig.WithLabelValues("enable_compression").Set(0)
+	}
 }
 
 func hotPathMetricsEnabled() bool {

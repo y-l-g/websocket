@@ -53,9 +53,13 @@ type Hub struct {
 	shards  []*HubShard
 
 	// Config
-	maxConnections  int64
-	numShards       int
-	activityTimeout int // Seconds
+	maxConnections              int64
+	numShards                   int
+	activityTimeout             int // Seconds
+	outboundQueueSize           int
+	writeBurstSize              int
+	fanoutBackpressureThreshold int
+	fanoutBackpressureMaxWait   time.Duration
 
 	// Synchronization
 	clientsMu sync.RWMutex
@@ -91,7 +95,42 @@ type ClientMessageWrapper struct {
 	Data    json.RawMessage
 }
 
-func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metrics, auth AuthProvider, webhook *WebhookManager, broker Broker, maxConn int, numShards int, pingPeriod time.Duration) *Hub {
+type DeliveryConfig struct {
+	OutboundQueueSize           int
+	WriteBurstSize              int
+	FanoutBackpressureThreshold int
+	FanoutBackpressureMaxWait   time.Duration
+	EnableCompression           bool
+}
+
+func DefaultDeliveryConfig() DeliveryConfig {
+	return DeliveryConfig{
+		OutboundQueueSize:           DefaultOutboundQueueSize,
+		WriteBurstSize:              DefaultWriteBurstSize,
+		FanoutBackpressureThreshold: DefaultFanoutBackpressureThreshold,
+		FanoutBackpressureMaxWait:   DefaultFanoutBackpressureMaxWait,
+	}
+}
+
+func (c DeliveryConfig) withDefaults() DeliveryConfig {
+	defaults := DefaultDeliveryConfig()
+	if c.OutboundQueueSize <= 0 {
+		c.OutboundQueueSize = defaults.OutboundQueueSize
+	}
+	if c.WriteBurstSize <= 0 {
+		c.WriteBurstSize = defaults.WriteBurstSize
+	}
+	if c.FanoutBackpressureThreshold <= 0 {
+		c.FanoutBackpressureThreshold = defaults.FanoutBackpressureThreshold
+	}
+	if c.FanoutBackpressureMaxWait <= 0 {
+		c.FanoutBackpressureMaxWait = defaults.FanoutBackpressureMaxWait
+	}
+	return c
+}
+
+func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metrics, auth AuthProvider, webhook *WebhookManager, broker Broker, maxConn int, numShards int, pingPeriod time.Duration, delivery DeliveryConfig) *Hub {
+	delivery = delivery.withDefaults()
 	if numShards <= 0 {
 		numShards = 32
 	}
@@ -109,25 +148,29 @@ func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metr
 	}
 
 	h := &Hub{
-		AppID:           appID,
-		auth:            auth,
-		broker:          broker,
-		logger:          logger,
-		metrics:         metrics,
-		ctx:             ctx,
-		maxConnections:  int64(maxConn),
-		numShards:       numShards,
-		activityTimeout: timeoutSec,
-		done:            make(chan struct{}),
-		clientMessage:   make(chan *ClientMessageWrapper),
-		subscribe:       make(chan *Subscription),
-		unsubscribe:     make(chan *Subscription),
-		shards:          make([]*HubShard, numShards),
-		clients:         make(map[*Client]bool),
+		AppID:                       appID,
+		auth:                        auth,
+		broker:                      broker,
+		logger:                      logger,
+		metrics:                     metrics,
+		ctx:                         ctx,
+		maxConnections:              int64(maxConn),
+		numShards:                   numShards,
+		activityTimeout:             timeoutSec,
+		outboundQueueSize:           delivery.OutboundQueueSize,
+		writeBurstSize:              delivery.WriteBurstSize,
+		fanoutBackpressureThreshold: delivery.FanoutBackpressureThreshold,
+		fanoutBackpressureMaxWait:   delivery.FanoutBackpressureMaxWait,
+		done:                        make(chan struct{}),
+		clientMessage:               make(chan *ClientMessageWrapper),
+		subscribe:                   make(chan *Subscription),
+		unsubscribe:                 make(chan *Subscription),
+		shards:                      make([]*HubShard, numShards),
+		clients:                     make(map[*Client]bool),
 	}
 
 	for i := 0; i < numShards; i++ {
-		h.shards[i] = NewHubShard(i, logger, ctx, metrics, webhook)
+		h.shards[i] = NewHubShard(i, logger, ctx, metrics, webhook, delivery.FanoutBackpressureThreshold, delivery.FanoutBackpressureMaxWait)
 		go h.shards[i].Run()
 	}
 

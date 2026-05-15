@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	fanoutBackpressureThreshold = 16
-	fanoutBackpressureSleep     = time.Millisecond
-	fanoutBackpressureMaxWait   = 10 * time.Millisecond
+	DefaultFanoutBackpressureThreshold = 16
+	DefaultFanoutBackpressureMaxWait   = 10 * time.Millisecond
+	fanoutBackpressureSleep            = time.Millisecond
 )
 
 type Member struct {
@@ -22,24 +22,34 @@ type Member struct {
 }
 
 type SubscriptionManager struct {
-	channels     map[string]map[*Client]bool
-	clients      map[*Client]map[string]bool
-	presence     map[string]map[string]Member
-	clientToUser map[string]map[*Client]string
-	logger       *zap.Logger
-	webhook      *WebhookManager
-	metrics      *Metrics
+	channels                    map[string]map[*Client]bool
+	clients                     map[*Client]map[string]bool
+	presence                    map[string]map[string]Member
+	clientToUser                map[string]map[*Client]string
+	logger                      *zap.Logger
+	webhook                     *WebhookManager
+	metrics                     *Metrics
+	fanoutBackpressureThreshold int
+	fanoutBackpressureMaxWait   time.Duration
 }
 
-func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *WebhookManager) *SubscriptionManager {
+func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *WebhookManager, fanoutBackpressureThreshold int, fanoutBackpressureMaxWait time.Duration) *SubscriptionManager {
+	if fanoutBackpressureThreshold <= 0 {
+		fanoutBackpressureThreshold = DefaultFanoutBackpressureThreshold
+	}
+	if fanoutBackpressureMaxWait <= 0 {
+		fanoutBackpressureMaxWait = DefaultFanoutBackpressureMaxWait
+	}
 	return &SubscriptionManager{
-		channels:     make(map[string]map[*Client]bool),
-		clients:      make(map[*Client]map[string]bool),
-		presence:     make(map[string]map[string]Member),
-		clientToUser: make(map[string]map[*Client]string),
-		logger:       logger,
-		webhook:      webhook,
-		metrics:      metrics,
+		channels:                    make(map[string]map[*Client]bool),
+		clients:                     make(map[*Client]map[string]bool),
+		presence:                    make(map[string]map[string]Member),
+		clientToUser:                make(map[string]map[*Client]string),
+		logger:                      logger,
+		webhook:                     webhook,
+		metrics:                     metrics,
+		fanoutBackpressureThreshold: fanoutBackpressureThreshold,
+		fanoutBackpressureMaxWait:   fanoutBackpressureMaxWait,
 	}
 }
 
@@ -49,7 +59,7 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 		return
 	}
 	waitStart := time.Now()
-	waitForFanoutCapacity(clients)
+	sm.waitForFanoutCapacity(clients)
 	if sm.metrics != nil && sm.metrics.HotPathEnabled {
 		sm.metrics.FanoutBackpressureWait.Observe(time.Since(waitStart).Seconds())
 	}
@@ -115,9 +125,9 @@ func wrapBenchmarkOutbound(payload any, sentAtMs float64) any {
 	}
 }
 
-func waitForFanoutCapacity(clients map[*Client]bool) {
-	deadline := time.Now().Add(fanoutBackpressureMaxWait)
-	for maxQueueDepth(clients) >= fanoutBackpressureThreshold {
+func (sm *SubscriptionManager) waitForFanoutCapacity(clients map[*Client]bool) {
+	deadline := time.Now().Add(sm.fanoutBackpressureMaxWait)
+	for maxQueueDepth(clients) >= sm.fanoutBackpressureThreshold {
 		if time.Now().After(deadline) {
 			return
 		}

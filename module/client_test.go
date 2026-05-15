@@ -147,7 +147,7 @@ func TestClient_PingPong(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	hub := NewHub("test-app", logger, ctx, metrics, auth, nil, broker, 100, 4, DefaultPingPeriod)
+	hub := NewHub("test-app", logger, ctx, metrics, auth, nil, broker, 100, 4, DefaultPingPeriod, DefaultDeliveryConfig())
 	go hub.Run()
 
 	mockConn := NewMockWSConnection()
@@ -205,7 +205,7 @@ func TestClient_Subscribe(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	hub := NewHub("test-app", logger, ctx, metrics, auth, nil, broker, 100, 4, DefaultPingPeriod)
+	hub := NewHub("test-app", logger, ctx, metrics, auth, nil, broker, 100, 4, DefaultPingPeriod, DefaultDeliveryConfig())
 	go hub.Run()
 
 	mockConn := NewMockWSConnection()
@@ -276,6 +276,40 @@ func TestClient_WriteOutboundBurstDrainsQueuedMessagesUnderOneDeadline(t *testin
 		if mockConn.WriteMsgs[i] != msg {
 			t.Fatalf("Write %d mismatch: expected %q, got %q", i, msg, mockConn.WriteMsgs[i])
 		}
+	}
+}
+
+func TestClient_WriteOutboundBurstHonorsConfiguredBurstSize(t *testing.T) {
+	mockConn := NewMockWSConnection()
+	client := &Client{
+		ID:             "test-client-configured-burst",
+		conn:           mockConn,
+		send:           make(chan any, 10),
+		WriteWait:      time.Second,
+		WriteBurstSize: 2,
+	}
+
+	client.send <- []byte("second")
+	client.send <- []byte("third")
+
+	if err := client.writeOutboundBurst([]byte("first")); err != nil {
+		t.Fatalf("writeOutboundBurst failed: %v", err)
+	}
+
+	mockConn.mu.Lock()
+	defer mockConn.mu.Unlock()
+
+	expected := []string{"first", "second"}
+	if len(mockConn.WriteMsgs) != len(expected) {
+		t.Fatalf("Expected %d writes, got %d: %v", len(expected), len(mockConn.WriteMsgs), mockConn.WriteMsgs)
+	}
+	for i, msg := range expected {
+		if mockConn.WriteMsgs[i] != msg {
+			t.Fatalf("Write %d mismatch: expected %q, got %q", i, msg, mockConn.WriteMsgs[i])
+		}
+	}
+	if len(client.send) != 1 {
+		t.Fatalf("Expected one queued message to remain, got %d", len(client.send))
 	}
 }
 
