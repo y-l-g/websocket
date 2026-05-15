@@ -20,7 +20,6 @@ type Metrics struct {
 	PublishDuration        *prometheus.HistogramVec
 	BrokerToHubDelay       prometheus.Histogram
 	HubToShardDelay        prometheus.Histogram
-	FanoutDuration         prometheus.Histogram
 	FanoutBackpressureWait prometheus.Histogram
 	FanoutSubscribers      prometheus.Histogram
 	ClientQueueDepth       prometheus.Histogram
@@ -101,12 +100,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help:      "Time from hub broker receive to shard broadcast handling",
 			Buckets:   prometheus.ExponentialBuckets(0.00001, 2, 18),
 		}),
-		FanoutDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: "pogo_websocket",
-			Name:      "fanout_duration_seconds",
-			Help:      "Duration spent enqueueing one broadcast to subscribed clients",
-			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
-		}),
 		FanoutBackpressureWait: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "pogo_websocket",
 			Name:      "fanout_backpressure_wait_seconds",
@@ -174,7 +167,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		_ = reg.Register(m.PublishDuration)
 		_ = reg.Register(m.BrokerToHubDelay)
 		_ = reg.Register(m.HubToShardDelay)
-		_ = reg.Register(m.FanoutDuration)
 		_ = reg.Register(m.FanoutBackpressureWait)
 		_ = reg.Register(m.FanoutSubscribers)
 		_ = reg.Register(m.ClientQueueDepth)

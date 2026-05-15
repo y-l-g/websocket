@@ -103,7 +103,7 @@ class BroadcasterTest extends TestCase
 
     public function testBenchmarkPayloadReceivesPogoPhpBroadcastTimestamp()
     {
-        $broadcaster = new class(['app_id' => 'test-app']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app']) extends Broadcaster {
             /**
              * @param array<mixed> $payload
              * @return string|false
@@ -130,7 +130,7 @@ class BroadcasterTest extends TestCase
 
     public function testNonBenchmarkAndFailedPayloadEncodingKeepExistingBehavior()
     {
-        $broadcaster = new class(['app_id' => 'test-app']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app']) extends Broadcaster {
             /**
              * @param array<mixed> $payload
              * @return string|false

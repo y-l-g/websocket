@@ -15,8 +15,8 @@ import (
 
 const (
 	DefaultOutboundQueueSize               = 256
-	DefaultFanoutMode                      = "burst"
-	DefaultFanoutRoundSize                 = 16
+	DefaultFanoutMode                      = "paced"
+	DefaultFanoutRoundSize                 = 8
 	DefaultFanoutRoundYield  time.Duration = 0
 )
 

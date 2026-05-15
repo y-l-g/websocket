@@ -15,6 +15,7 @@ const (
 	DefaultFanoutBackpressureThreshold = 16
 	DefaultFanoutBackpressureMaxWait   = 10 * time.Millisecond
 	fanoutBackpressureSleep            = time.Millisecond
+	fanoutAdaptiveQueueThreshold       = 4
 	fanoutModeBurst                    = "burst"
 	fanoutModePaced                    = "paced"
 )
@@ -82,10 +83,8 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 		sm.metrics.FanoutBackpressureWait.Observe(time.Since(waitStart).Seconds())
 	}
 
-	start := time.Now()
 	if sm.metrics != nil && sm.metrics.HotPathEnabled {
 		sm.metrics.FanoutSubscribers.Observe(float64(len(clients)))
-		defer sm.metrics.FanoutDuration.Observe(time.Since(start).Seconds())
 	}
 
 	payload, err := json.Marshal(map[string]interface{}{
@@ -130,6 +129,8 @@ func (sm *SubscriptionManager) fanout(clients map[*Client]bool, payload any) {
 		sentInRound = 0
 		if sm.fanoutRoundYield > 0 {
 			time.Sleep(sm.fanoutRoundYield)
+		} else if maxQueueDepth(clients) >= fanoutAdaptiveQueueThreshold {
+			time.Sleep(time.Millisecond)
 		} else {
 			runtime.Gosched()
 		}

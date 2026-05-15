@@ -212,7 +212,6 @@ function scrapePrometheusMetrics() {
     scrape,
     text: res.body,
     derived: {
-      fanoutDurationSeconds: histogramSummary(samples, "pogo_websocket_fanout_duration_seconds"),
       fanoutBackpressureWaitSeconds: histogramSummary(samples, "pogo_websocket_fanout_backpressure_wait_seconds"),
       fanoutSubscribers: histogramSummary(samples, "pogo_websocket_fanout_subscribers"),
       phpToGoEntryDelaySeconds: histogramSummary(samples, "pogo_websocket_php_to_go_entry_delay_seconds"),
@@ -395,9 +394,6 @@ export function handleSummary(data) {
   const missing = Math.max(0, totalExpectedMessages - observed);
   const diagnostics = prometheus.derived
     ? {
-        fanoutDurationP95Ms: prometheus.derived.fanoutDurationSeconds?.p95 == null
-          ? null
-          : prometheus.derived.fanoutDurationSeconds.p95 * 1000,
         fanoutBackpressureWaitP95Ms: prometheus.derived.fanoutBackpressureWaitSeconds?.p95 == null
           ? null
           : prometheus.derived.fanoutBackpressureWaitSeconds.p95 * 1000,

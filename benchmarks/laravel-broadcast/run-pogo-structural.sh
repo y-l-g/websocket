@@ -126,7 +126,7 @@ write_audit_row() {
     config_match=true
   fi
 
-  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+  printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
     "$scenario" \
     "$fanout_mode" \
     "$round_size" \
@@ -138,7 +138,6 @@ write_audit_row() {
     "$(json_number "$file" writeCompleteFromSentP95Ms)" \
     "$(json_number "$file" sentToReadP95Ms)" \
     "$(json_number "$file" sentToReadP99Ms)" \
-    "$(json_number "$file" fanoutDurationP95Ms)" \
     "$(json_number "$file" fanoutSubscribersP95)" \
     "$(json_number "$file" clientQueueDepthP95)" \
     "$(json_number "$file" clientQueueDepthP99)" \
@@ -201,7 +200,7 @@ run_structural_scenario() {
   env | sort | grep -E '^(VUS|MSG_COUNT|PAYLOAD_SIZE|PUBLISH_BATCHES|BATCH_INTERVAL_SECONDS|RAMP_UP_SECONDS|PUBLISH_MAX_DURATION_SECONDS|DRAIN_SECONDS|POGO_WS_)' || true
 } > "$RESULTS_DIR/run-$STAMP-pogo-structural-meta.txt"
 
-printf 'scenario\tfanout_mode\tfanout_round_size\tfanout_round_yield\teffective_fanout_mode_paced\teffective_fanout_round_size\teffective_fanout_round_yield_ms\tconfig_match\twrite_complete_from_sent_p95_ms\tgo_receiver_p95_ms\tgo_receiver_p99_ms\tfanout_duration_p95_ms\tfanout_subscribers_p95\tclient_queue_depth_p95\tclient_queue_depth_p99\tclient_queue_residence_p95_ms\tclient_queue_residence_p99_ms\tdelivery_completeness\tconnect_errors\tparse_errors\tread_errors\n' > "$AUDIT_FILE"
+printf 'scenario\tfanout_mode\tfanout_round_size\tfanout_round_yield\teffective_fanout_mode_paced\teffective_fanout_round_size\teffective_fanout_round_yield_ms\tconfig_match\twrite_complete_from_sent_p95_ms\tgo_receiver_p95_ms\tgo_receiver_p99_ms\tfanout_subscribers_p95\tclient_queue_depth_p95\tclient_queue_depth_p99\tclient_queue_residence_p95_ms\tclient_queue_residence_p99_ms\tdelivery_completeness\tconnect_errors\tparse_errors\tread_errors\n' > "$AUDIT_FILE"
 
 render_runtime_caddyfile "burst" "$BASE_FANOUT_ROUND_SIZE" "0ms"
 compose down -v --remove-orphans
