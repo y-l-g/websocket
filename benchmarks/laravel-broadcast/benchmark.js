@@ -4,6 +4,7 @@ import { check, sleep } from "k6";
 import { Counter, Rate, Trend } from "k6/metrics";
 
 const DRIVER = __ENV.DRIVER || "reverb";
+const ROLE = __ENV.ROLE || "both";
 const HOST = __ENV.HOST || "localhost";
 const HTTP_HOST = __ENV.HTTP_HOST || HOST;
 const WS_HOST = __ENV.WS_HOST || HOST;
@@ -40,6 +41,7 @@ const PUBLISHER_COMPLETION_DEADLINE_SECONDS =
   PUBLISH_START_SECONDS + PUBLISH_MAX_DURATION_SECONDS;
 const LISTENER_RAMP_DOWN_START_SECONDS = RAMP_UP_SECONDS + HOLD_SECONDS;
 const SCHEDULE_IS_VALID =
+  ROLE === "publisher" ||
   LISTENER_RAMP_DOWN_START_SECONDS >= REQUIRED_LISTENER_RAMP_DOWN_START_SECONDS;
 
 if (!SCHEDULE_IS_VALID) {
@@ -48,6 +50,10 @@ if (!SCHEDULE_IS_VALID) {
       `but publisher maxDuration plus drain requires ${REQUIRED_LISTENER_RAMP_DOWN_START_SECONDS}s. ` +
       `Increase HOLD_SECONDS or reduce PUBLISH_MAX_DURATION_SECONDS.`
   );
+}
+
+if (!["both", "listeners", "publisher"].includes(ROLE)) {
+  throw new Error(`Invalid ROLE=${ROLE}; expected both, listeners, or publisher.`);
 }
 
 const wsUrl = `ws://${WS_HOST}:${WS_PORT}/app/${APP_KEY}?protocol=7&client=js&version=8.4.0&flash=false`;
@@ -236,19 +242,30 @@ function scrapePrometheusMetrics() {
   };
 }
 
-export const options = {
-  summaryTrendStats: ["avg", "min", "med", "max", "p(90)", "p(95)", "p(99)"],
-  thresholds: {
-    http_req_failed: ["rate==0"],
-    publish_success: ["rate==1"],
-    ws_sessions: [`count==${VUS}`],
-    subscriptions_succeeded: [`count==${VUS}`],
-    http_reqs: [`count==${PUBLISH_BATCHES}`],
+function buildThresholds() {
+  const thresholds = {
     conn_errors: ["count==0"],
     parse_errors: ["count==0"],
-  },
-  scenarios: {
-    listeners: {
+  };
+
+  if (ROLE === "both" || ROLE === "listeners") {
+    thresholds.ws_sessions = [`count==${VUS}`];
+    thresholds.subscriptions_succeeded = [`count==${VUS}`];
+  }
+  if (ROLE === "both" || ROLE === "publisher") {
+    thresholds.http_req_failed = ["rate==0"];
+    thresholds.publish_success = ["rate==1"];
+    thresholds.http_reqs = [`count==${PUBLISH_BATCHES}`];
+  }
+
+  return thresholds;
+}
+
+function buildScenarios() {
+  const scenarios = {};
+
+  if (ROLE === "both" || ROLE === "listeners") {
+    scenarios.listeners = {
       executor: "ramping-vus",
       stages: [
         { duration: `${RAMP_UP_SECONDS}s`, target: VUS },
@@ -257,16 +274,27 @@ export const options = {
       ],
       gracefulStop: "5s",
       exec: "listener",
-    },
-    publisher: {
+    };
+  }
+
+  if (ROLE === "both" || ROLE === "publisher") {
+    scenarios.publisher = {
       executor: "shared-iterations",
       vus: 1,
       iterations: PUBLISH_BATCHES,
       startTime: `${PUBLISH_START_SECONDS}s`,
       maxDuration: `${PUBLISH_MAX_DURATION_SECONDS}s`,
       exec: "publisher",
-    },
-  },
+    };
+  }
+
+  return scenarios;
+}
+
+export const options = {
+  summaryTrendStats: ["avg", "min", "med", "max", "p(90)", "p(95)", "p(99)"],
+  thresholds: buildThresholds(),
+  scenarios: buildScenarios(),
 };
 
 export function listener() {
@@ -349,8 +377,9 @@ export function handleSummary(data) {
   const completedPublishBatches = count("http_reqs");
   const published = Math.round(completedPublishBatches * (data.metrics.publish_success?.values.rate || 0));
   const observed = count("msgs_received");
+  const expectedBatches = ROLE === "listeners" ? PUBLISH_BATCHES : published;
   const expectedPerSuccessfulBatch = subscribed * MSG_COUNT;
-  const totalExpectedMessages = expectedPerSuccessfulBatch * published;
+  const totalExpectedMessages = expectedPerSuccessfulBatch * expectedBatches;
   const missing = Math.max(0, totalExpectedMessages - observed);
   const diagnostics = prometheus.derived
     ? {
@@ -404,8 +433,10 @@ export function handleSummary(data) {
 
   const summary = {
     driver: DRIVER,
+    role: ROLE,
     generatedAt: new Date().toISOString(),
     config: {
+      role: ROLE,
       vus: VUS,
       msgCount: MSG_COUNT,
       payloadSize: PAYLOAD_SIZE,
@@ -425,12 +456,13 @@ export function handleSummary(data) {
       publisherCompletionDeadlineSeconds: PUBLISHER_COMPLETION_DEADLINE_SECONDS,
       requiredListenerRampDownStartSeconds: REQUIRED_LISTENER_RAMP_DOWN_START_SECONDS,
       allPublishBatchesCompleted: completedPublishBatches === PUBLISH_BATCHES,
-      allListenersSubscribed: subscribed === VUS,
+      allListenersSubscribed: ROLE === "publisher" ? null : subscribed === VUS,
     },
     delivery: {
       subscribed,
       completedPublishBatches,
       published,
+      expectedBatches,
       expectedPerSuccessfulBatch,
       totalExpectedMessages,
       observed,
@@ -511,6 +543,7 @@ export function handleSummary(data) {
       "",
       "BENCHMARK SUMMARY",
       `driver=${summary.driver}`,
+      `role=${summary.role}`,
       `subscribers=${subscribed}`,
       `successful_batches=${published}`,
       `completed_publish_batches=${completedPublishBatches}`,

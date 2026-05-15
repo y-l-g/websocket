@@ -10,7 +10,7 @@ Requires Docker with Compose.
 POGO_WS_HOT_PATH_METRICS=true ./benchmarks/laravel-broadcast/run.sh
 ```
 
-The runner performs a `docker compose down -v`, fresh `--no-cache` application image builds, an isolated Pogo run, an isolated Reverb run, and final cleanup. Console logs, image metadata, run metadata, and k6 JSON summaries are written to `benchmarks/laravel-broadcast/results/`.
+The runner performs a `docker compose down -v`, fresh `--no-cache` application image builds, an isolated Pogo k6 run, an isolated Reverb k6 run, a sharded Pogo k6 run, a Go receiver Pogo run, and final cleanup. Console logs, image metadata, run metadata, k6 JSON summaries, the Go receiver JSON summary, and the proof audit are written to `benchmarks/laravel-broadcast/results/`.
 
 The default schedule keeps websocket listeners connected until the publisher's configured `maxDuration` plus a drain buffer has elapsed. This prevents late publish batches from being counted as expected delivery after subscribers have already shut down.
 
@@ -28,9 +28,17 @@ docker compose -f benchmarks/laravel-broadcast/compose.yaml up --force-recreate 
 docker compose -f benchmarks/laravel-broadcast/compose.yaml down -v
 docker compose -f benchmarks/laravel-broadcast/compose.yaml up --force-recreate --abort-on-container-exit --exit-code-from k6-reverb k6-reverb
 docker compose -f benchmarks/laravel-broadcast/compose.yaml down -v
+docker compose -f benchmarks/laravel-broadcast/compose.yaml up --force-recreate k6-pogo-listener-1 k6-pogo-listener-2 k6-pogo-listener-3 k6-pogo-listener-4 k6-pogo-listener-5 k6-pogo-publisher
+docker compose -f benchmarks/laravel-broadcast/compose.yaml down -v
+docker compose -f benchmarks/laravel-broadcast/compose.yaml up --force-recreate --abort-on-container-exit --exit-code-from go-receiver-pogo go-receiver-pogo
+docker compose -f benchmarks/laravel-broadcast/compose.yaml down -v
 ```
 
-`benchmark.js` accepts `DRIVER`, `APP_KEY`, `HTTP_HOST`, `WS_HOST`, `HTTP_PORT`, `WS_PORT`, `VUS`, `MSG_COUNT`, `PAYLOAD_SIZE`, `PUBLISH_BATCHES`, `BATCH_INTERVAL_SECONDS`, `RAMP_UP_SECONDS`, `HOLD_SECONDS`, `RAMP_DOWN_SECONDS`, `PUBLISH_START_SECONDS`, `PUBLISH_MAX_DURATION_SECONDS`, `DRAIN_SECONDS`, `LATENCY_P95_THRESHOLD_MS`, and `RESULT_FILE` overrides.
+`benchmark.js` accepts `DRIVER`, `ROLE`, `APP_KEY`, `HTTP_HOST`, `WS_HOST`, `HTTP_PORT`, `WS_PORT`, `VUS`, `MSG_COUNT`, `PAYLOAD_SIZE`, `PUBLISH_BATCHES`, `BATCH_INTERVAL_SECONDS`, `RAMP_UP_SECONDS`, `HOLD_SECONDS`, `RAMP_DOWN_SECONDS`, `PUBLISH_START_SECONDS`, `PUBLISH_MAX_DURATION_SECONDS`, `DRAIN_SECONDS`, `LATENCY_P95_THRESHOLD_MS`, and `RESULT_FILE` overrides. `ROLE=both` is the default; `ROLE=listeners` opens websocket listeners only, and `ROLE=publisher` triggers `/fire` only.
+
+The sharded k6 run starts five listener containers at `SHARD_VUS=100` each by default, plus one publisher container. The audit reports `sharded_k6_receive_p95_ms` as the maximum p95 across the five listener shard summaries.
+
+The Go receiver accepts the same core benchmark environment as k6 (`VUS`, `MSG_COUNT`, `PAYLOAD_SIZE`, `PUBLISH_BATCHES`, `BATCH_INTERVAL_SECONDS`, `PUBLISH_MAX_DURATION_SECONDS`, `DRAIN_SECONDS`, `HTTP_HOST`, `WS_HOST`, ports, `APP_KEY`, and `RESULT_FILE`) and writes `go-receiver-pogo-summary.json`.
 
 If `HOLD_SECONDS` is not set, the benchmark derives it from `PUBLISH_START_SECONDS + PUBLISH_MAX_DURATION_SECONDS + DRAIN_SECONDS - RAMP_UP_SECONDS`. If `HOLD_SECONDS` is set too low, k6 aborts instead of writing a misleading delivery summary.
 
