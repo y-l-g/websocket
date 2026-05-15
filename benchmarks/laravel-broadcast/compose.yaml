@@ -28,6 +28,7 @@ x-go-receiver-env: &go-receiver-env
   PUBLISH_BATCHES: ${PUBLISH_BATCHES:-20}
   BATCH_INTERVAL_SECONDS: ${BATCH_INTERVAL_SECONDS:-2}
   RAMP_UP_SECONDS: ${RAMP_UP_SECONDS:-10}
+  PUBLISH_START_SECONDS: ${PUBLISH_START_SECONDS:-12}
   PUBLISH_MAX_DURATION_SECONDS: ${PUBLISH_MAX_DURATION_SECONDS:-}
   DRAIN_SECONDS: ${DRAIN_SECONDS:-10}
 
@@ -257,6 +258,111 @@ services:
       WS_PORT: 8000
       APP_KEY: pogo-app
       RESULT_FILE: /results/go-receiver-pogo-summary.json
+    volumes:
+      - ./results:/results
+    depends_on:
+      pogo:
+        condition: service_healthy
+
+  go-receiver-pogo-listener-1: &go-receiver-pogo-listener
+    build:
+      context: ../..
+      dockerfile: benchmarks/laravel-broadcast/Dockerfile
+      target: builder
+    working_dir: /websocket
+    command: ["go", "run", "./cmd/bench-receiver"]
+    environment:
+      <<: *go-receiver-env
+      CGO_ENABLED: 0
+      ROLE: listeners
+      VUS: ${SHARD_VUS:-100}
+      HTTP_HOST: pogo
+      WS_HOST: pogo
+      HTTP_PORT: 8000
+      WS_PORT: 8000
+      APP_KEY: pogo-app
+      RESULT_FILE: /results/go-receiver-shard-1-summary.json
+    volumes:
+      - ./results:/results
+    depends_on:
+      pogo:
+        condition: service_healthy
+
+  go-receiver-pogo-listener-2:
+    <<: *go-receiver-pogo-listener
+    environment:
+      <<: *go-receiver-env
+      CGO_ENABLED: 0
+      ROLE: listeners
+      VUS: ${SHARD_VUS:-100}
+      HTTP_HOST: pogo
+      WS_HOST: pogo
+      HTTP_PORT: 8000
+      WS_PORT: 8000
+      APP_KEY: pogo-app
+      RESULT_FILE: /results/go-receiver-shard-2-summary.json
+
+  go-receiver-pogo-listener-3:
+    <<: *go-receiver-pogo-listener
+    environment:
+      <<: *go-receiver-env
+      CGO_ENABLED: 0
+      ROLE: listeners
+      VUS: ${SHARD_VUS:-100}
+      HTTP_HOST: pogo
+      WS_HOST: pogo
+      HTTP_PORT: 8000
+      WS_PORT: 8000
+      APP_KEY: pogo-app
+      RESULT_FILE: /results/go-receiver-shard-3-summary.json
+
+  go-receiver-pogo-listener-4:
+    <<: *go-receiver-pogo-listener
+    environment:
+      <<: *go-receiver-env
+      CGO_ENABLED: 0
+      ROLE: listeners
+      VUS: ${SHARD_VUS:-100}
+      HTTP_HOST: pogo
+      WS_HOST: pogo
+      HTTP_PORT: 8000
+      WS_PORT: 8000
+      APP_KEY: pogo-app
+      RESULT_FILE: /results/go-receiver-shard-4-summary.json
+
+  go-receiver-pogo-listener-5:
+    <<: *go-receiver-pogo-listener
+    environment:
+      <<: *go-receiver-env
+      CGO_ENABLED: 0
+      ROLE: listeners
+      VUS: ${SHARD_VUS:-100}
+      HTTP_HOST: pogo
+      WS_HOST: pogo
+      HTTP_PORT: 8000
+      WS_PORT: 8000
+      APP_KEY: pogo-app
+      RESULT_FILE: /results/go-receiver-shard-5-summary.json
+
+  go-receiver-pogo-publisher:
+    build:
+      context: ../..
+      dockerfile: benchmarks/laravel-broadcast/Dockerfile
+      target: builder
+    working_dir: /websocket
+    command: ["go", "run", "./cmd/bench-receiver"]
+    environment:
+      <<: *go-receiver-env
+      CGO_ENABLED: 0
+      ROLE: publisher
+      HTTP_HOST: pogo
+      WS_HOST: pogo
+      HTTP_PORT: 8000
+      WS_PORT: 8000
+      APP_KEY: pogo-app
+      RESULT_FILE: /results/go-receiver-sharded-publisher-summary.json
+      METRICS_URL: http://pogo:2019/metrics
+      METRICS_FILE: /results/go-receiver-sharded-metrics.prom
     volumes:
       - ./results:/results
     depends_on:

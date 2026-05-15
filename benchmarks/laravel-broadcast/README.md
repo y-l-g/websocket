@@ -20,6 +20,14 @@ For a quick smoke test:
 VUS=20 MSG_COUNT=5 PUBLISH_BATCHES=3 BATCH_INTERVAL_SECONDS=1 PUBLISH_MAX_DURATION_SECONDS=15 DRAIN_SECONDS=5 ./benchmarks/laravel-broadcast/run.sh
 ```
 
+For the focused Pogo diagnosis after the first proof pass:
+
+```bash
+POGO_WS_HOT_PATH_METRICS=true ./benchmarks/laravel-broadcast/run-pogo-diagnosis.sh
+```
+
+This runs only Pogo and Go receiver scenarios: one 500-client baseline, one 5x100 sharded Go receiver run, a payload-size sweep (`16`, `256`, `1024`, `4096`), and a batch-size sweep (`10`, `50`, `100`, `250`). The summary table is written to `benchmarks/laravel-broadcast/results/run-*-pogo-diagnosis-audit.tsv`.
+
 Manual runs are still possible:
 
 ```bash
@@ -38,7 +46,7 @@ docker compose -f benchmarks/laravel-broadcast/compose.yaml down -v
 
 The sharded k6 run starts five listener containers at `SHARD_VUS=100` each by default, plus one publisher container. The audit reports `sharded_k6_receive_p95_ms` as the maximum p95 across the five listener shard summaries.
 
-The Go receiver accepts the same core benchmark environment as k6 (`VUS`, `MSG_COUNT`, `PAYLOAD_SIZE`, `PUBLISH_BATCHES`, `BATCH_INTERVAL_SECONDS`, `PUBLISH_MAX_DURATION_SECONDS`, `DRAIN_SECONDS`, `HTTP_HOST`, `WS_HOST`, ports, `APP_KEY`, and `RESULT_FILE`) and writes `go-receiver-pogo-summary.json`.
+The Go receiver accepts the same core benchmark environment as k6 (`ROLE`, `VUS`, `MSG_COUNT`, `PAYLOAD_SIZE`, `PUBLISH_BATCHES`, `BATCH_INTERVAL_SECONDS`, `RAMP_UP_SECONDS`, `PUBLISH_START_SECONDS`, `PUBLISH_MAX_DURATION_SECONDS`, `DRAIN_SECONDS`, `HTTP_HOST`, `WS_HOST`, ports, `APP_KEY`, `RESULT_FILE`, `METRICS_URL`, and `METRICS_FILE`). `ROLE=both` is the default; `ROLE=listeners` opens websocket listeners only, and `ROLE=publisher` triggers `/fire` only.
 
 If `HOLD_SECONDS` is not set, the benchmark derives it from `PUBLISH_START_SECONDS + PUBLISH_MAX_DURATION_SECONDS + DRAIN_SECONDS - RAMP_UP_SECONDS`. If `HOLD_SECONDS` is set too low, k6 aborts instead of writing a misleading delivery summary.
 
