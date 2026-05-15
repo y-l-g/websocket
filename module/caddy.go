@@ -40,6 +40,9 @@ type WebsocketModule struct {
 	WriteBurstSize              int     `json:"write_burst_size,omitempty"`
 	FanoutBackpressureThreshold int     `json:"fanout_backpressure_threshold,omitempty"`
 	FanoutBackpressureMaxWait   string  `json:"fanout_backpressure_max_wait,omitempty"`
+	FanoutMode                  string  `json:"fanout_mode,omitempty"`
+	FanoutRoundSize             int     `json:"fanout_round_size,omitempty"`
+	FanoutRoundYield            string  `json:"fanout_round_yield,omitempty"`
 	EnableCompression           bool    `json:"enable_compression,omitempty"`
 	WebhookURL                  string  `json:"webhook_url,omitempty"`
 	WebhookSecret               string  `json:"webhook_secret,omitempty"`
@@ -55,6 +58,7 @@ type WebsocketModule struct {
 	writeWaitDuration                 time.Duration
 	pongWaitDuration                  time.Duration
 	fanoutBackpressureMaxWaitDuration time.Duration
+	fanoutRoundYieldDuration          time.Duration
 
 	hub          *Hub
 	metrics      *Metrics
@@ -108,6 +112,9 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		WriteBurstSize:              m.WriteBurstSize,
 		FanoutBackpressureThreshold: m.FanoutBackpressureThreshold,
 		FanoutBackpressureMaxWait:   m.fanoutBackpressureMaxWaitDuration,
+		FanoutMode:                  m.FanoutMode,
+		FanoutRoundSize:             m.FanoutRoundSize,
+		FanoutRoundYield:            m.fanoutRoundYieldDuration,
 		EnableCompression:           m.EnableCompression,
 	}
 	m.hub = NewHub(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker, m.MaxConnections, m.NumShards, m.pingPeriodDuration, delivery)
@@ -195,6 +202,18 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	if m.FanoutBackpressureThreshold < 1 {
 		return fmt.Errorf("fanout_backpressure_threshold must be greater than 0")
 	}
+	if m.FanoutMode == "" {
+		m.FanoutMode = defaultDelivery.FanoutMode
+	}
+	if m.FanoutMode != fanoutModeBurst && m.FanoutMode != fanoutModePaced {
+		return fmt.Errorf("fanout_mode must be %q or %q", fanoutModeBurst, fanoutModePaced)
+	}
+	if m.FanoutRoundSize == 0 {
+		m.FanoutRoundSize = defaultDelivery.FanoutRoundSize
+	}
+	if m.FanoutRoundSize < 1 {
+		return fmt.Errorf("fanout_round_size must be greater than 0")
+	}
 
 	var err error
 	if m.PingPeriod == "" {
@@ -235,6 +254,17 @@ func (m *WebsocketModule) validateAndDefaults() error {
 			return fmt.Errorf("fanout_backpressure_max_wait must not be negative")
 		}
 	}
+	if m.FanoutRoundYield == "" {
+		m.fanoutRoundYieldDuration = defaultDelivery.FanoutRoundYield
+	} else {
+		m.fanoutRoundYieldDuration, err = time.ParseDuration(m.FanoutRoundYield)
+		if err != nil {
+			return fmt.Errorf("invalid fanout_round_yield: %v", err)
+		}
+		if m.fanoutRoundYieldDuration < 0 {
+			return fmt.Errorf("fanout_round_yield must not be negative")
+		}
+	}
 
 	return nil
 }
@@ -263,6 +293,19 @@ func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
 	}
 	if value := os.Getenv("POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT"); value != "" {
 		m.FanoutBackpressureMaxWait = value
+	}
+	if value := os.Getenv("POGO_WS_FANOUT_MODE"); value != "" {
+		m.FanoutMode = value
+	}
+	if value := os.Getenv("POGO_WS_FANOUT_ROUND_SIZE"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_FANOUT_ROUND_SIZE: %v", err)
+		}
+		m.FanoutRoundSize = parsed
+	}
+	if value := os.Getenv("POGO_WS_FANOUT_ROUND_YIELD"); value != "" {
+		m.FanoutRoundYield = value
 	}
 	if value := os.Getenv("POGO_WS_ENABLE_COMPRESSION"); value != "" {
 		parsed, err := strconv.ParseBool(value)
@@ -470,6 +513,25 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				m.FanoutBackpressureMaxWait = d.Val()
+			case "fanout_mode":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.FanoutMode = d.Val()
+			case "fanout_round_size":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				var c int
+				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+				m.FanoutRoundSize = c
+			case "fanout_round_yield":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.FanoutRoundYield = d.Val()
 			case "enable_compression":
 				if !d.NextArg() {
 					m.EnableCompression = true

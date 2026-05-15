@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"encoding/json"
+	"runtime"
 	"strings"
 	"time"
 
@@ -14,6 +15,8 @@ const (
 	DefaultFanoutBackpressureThreshold = 16
 	DefaultFanoutBackpressureMaxWait   = 10 * time.Millisecond
 	fanoutBackpressureSleep            = time.Millisecond
+	fanoutModeBurst                    = "burst"
+	fanoutModePaced                    = "paced"
 )
 
 type Member struct {
@@ -31,14 +34,26 @@ type SubscriptionManager struct {
 	metrics                     *Metrics
 	fanoutBackpressureThreshold int
 	fanoutBackpressureMaxWait   time.Duration
+	fanoutMode                  string
+	fanoutRoundSize             int
+	fanoutRoundYield            time.Duration
 }
 
-func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *WebhookManager, fanoutBackpressureThreshold int, fanoutBackpressureMaxWait time.Duration) *SubscriptionManager {
+func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *WebhookManager, fanoutBackpressureThreshold int, fanoutBackpressureMaxWait time.Duration, fanoutMode string, fanoutRoundSize int, fanoutRoundYield time.Duration) *SubscriptionManager {
 	if fanoutBackpressureThreshold <= 0 {
 		fanoutBackpressureThreshold = DefaultFanoutBackpressureThreshold
 	}
 	if fanoutBackpressureMaxWait <= 0 {
 		fanoutBackpressureMaxWait = DefaultFanoutBackpressureMaxWait
+	}
+	if fanoutMode == "" {
+		fanoutMode = DefaultFanoutMode
+	}
+	if fanoutRoundSize <= 0 {
+		fanoutRoundSize = DefaultFanoutRoundSize
+	}
+	if fanoutRoundYield < 0 {
+		fanoutRoundYield = DefaultFanoutRoundYield
 	}
 	return &SubscriptionManager{
 		channels:                    make(map[string]map[*Client]bool),
@@ -50,6 +65,9 @@ func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *Webho
 		metrics:                     metrics,
 		fanoutBackpressureThreshold: fanoutBackpressureThreshold,
 		fanoutBackpressureMaxWait:   fanoutBackpressureMaxWait,
+		fanoutMode:                  fanoutMode,
+		fanoutRoundSize:             fanoutRoundSize,
+		fanoutRoundYield:            fanoutRoundYield,
 	}
 }
 
@@ -87,14 +105,34 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	}
 	if err != nil {
 		sm.logger.Error("PreparedMessage error", zap.Error(err))
+		sm.fanout(clients, wrapBenchmarkOutbound(payload, sentAtMs))
+		return
+	}
+
+	sm.fanout(clients, wrapBenchmarkOutbound(pm, sentAtMs))
+}
+
+func (sm *SubscriptionManager) fanout(clients map[*Client]bool, payload any) {
+	if sm.fanoutMode != fanoutModePaced {
 		for client := range clients {
-			client.Send(wrapBenchmarkOutbound(payload, sentAtMs))
+			client.Send(payload)
 		}
 		return
 	}
 
+	sentInRound := 0
 	for client := range clients {
-		client.Send(wrapBenchmarkOutbound(pm, sentAtMs))
+		client.Send(payload)
+		sentInRound++
+		if sentInRound < sm.fanoutRoundSize {
+			continue
+		}
+		sentInRound = 0
+		if sm.fanoutRoundYield > 0 {
+			time.Sleep(sm.fanoutRoundYield)
+		} else {
+			runtime.Gosched()
+		}
 	}
 }
 

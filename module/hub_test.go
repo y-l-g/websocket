@@ -150,7 +150,7 @@ func TestHubAndShardDelayMetricsRecordNonNegativeDurations(t *testing.T) {
 	defer cancel()
 
 	metrics := NewMetrics(prometheus.NewRegistry())
-	shard := NewHubShard(0, logger, ctx, metrics, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait)
+	shard := NewHubShard(0, logger, ctx, metrics, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait, DefaultFanoutMode, DefaultFanoutRoundSize, DefaultFanoutRoundYield)
 	go shard.Run()
 
 	msg := &BroadcastMessage{

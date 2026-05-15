@@ -75,10 +75,19 @@ type latencySummary struct {
 
 type diagnostics struct {
 	WriteCompleteFromSentP95Ms  float64 `json:"writeCompleteFromSentP95Ms"`
+	FanoutDurationP95Ms         float64 `json:"fanoutDurationP95Ms"`
+	FanoutSubscribersP95        float64 `json:"fanoutSubscribersP95"`
+	ClientQueueDepthP95         float64 `json:"clientQueueDepthP95"`
+	ClientQueueDepthP99         float64 `json:"clientQueueDepthP99"`
+	ClientQueueResidenceP95Ms   float64 `json:"clientQueueResidenceP95Ms"`
+	ClientQueueResidenceP99Ms   float64 `json:"clientQueueResidenceP99Ms"`
 	OutboundQueueSize           float64 `json:"outboundQueueSize"`
 	WriteBurstSize              float64 `json:"writeBurstSize"`
 	FanoutBackpressureThreshold float64 `json:"fanoutBackpressureThreshold"`
 	FanoutBackpressureMaxWaitMs float64 `json:"fanoutBackpressureMaxWaitMs"`
+	FanoutModePaced             float64 `json:"fanoutModePaced"`
+	FanoutRoundSize             float64 `json:"fanoutRoundSize"`
+	FanoutRoundYieldMs          float64 `json:"fanoutRoundYieldMs"`
 	EnableCompression           float64 `json:"enableCompression"`
 }
 
@@ -447,17 +456,33 @@ func scrapeDiagnostics(cfg config) (*diagnostics, error) {
 		return nil, fmt.Errorf("metrics status %d", res.StatusCode)
 	}
 
-	p95, ok := prometheusHistogramQuantile(string(body), "pogo_websocket_write_complete_to_payload_sent_seconds", 0.95)
+	text := string(body)
+	p95, ok := prometheusHistogramQuantile(text, "pogo_websocket_write_complete_to_payload_sent_seconds", 0.95)
 	if !ok {
 		return nil, nil
 	}
+	fanoutDurationP95, _ := prometheusHistogramQuantile(text, "pogo_websocket_fanout_duration_seconds", 0.95)
+	fanoutSubscribersP95, _ := prometheusHistogramQuantile(text, "pogo_websocket_fanout_subscribers", 0.95)
+	clientQueueDepthP95, _ := prometheusHistogramQuantile(text, "pogo_websocket_client_queue_depth", 0.95)
+	clientQueueDepthP99, _ := prometheusHistogramQuantile(text, "pogo_websocket_client_queue_depth", 0.99)
+	clientQueueResidenceP95, _ := prometheusHistogramQuantile(text, "pogo_websocket_client_queue_residence_seconds", 0.95)
+	clientQueueResidenceP99, _ := prometheusHistogramQuantile(text, "pogo_websocket_client_queue_residence_seconds", 0.99)
 	return &diagnostics{
 		WriteCompleteFromSentP95Ms:  p95 * 1000,
-		OutboundQueueSize:           prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "outbound_queue_size"),
-		WriteBurstSize:              prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "write_burst_size"),
-		FanoutBackpressureThreshold: prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "fanout_backpressure_threshold"),
-		FanoutBackpressureMaxWaitMs: prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "fanout_backpressure_max_wait_seconds") * 1000,
-		EnableCompression:           prometheusGaugeValue(string(body), "pogo_websocket_delivery_config", "enable_compression"),
+		FanoutDurationP95Ms:         fanoutDurationP95 * 1000,
+		FanoutSubscribersP95:        fanoutSubscribersP95,
+		ClientQueueDepthP95:         clientQueueDepthP95,
+		ClientQueueDepthP99:         clientQueueDepthP99,
+		ClientQueueResidenceP95Ms:   clientQueueResidenceP95 * 1000,
+		ClientQueueResidenceP99Ms:   clientQueueResidenceP99 * 1000,
+		OutboundQueueSize:           prometheusGaugeValue(text, "pogo_websocket_delivery_config", "outbound_queue_size"),
+		WriteBurstSize:              prometheusGaugeValue(text, "pogo_websocket_delivery_config", "write_burst_size"),
+		FanoutBackpressureThreshold: prometheusGaugeValue(text, "pogo_websocket_delivery_config", "fanout_backpressure_threshold"),
+		FanoutBackpressureMaxWaitMs: prometheusGaugeValue(text, "pogo_websocket_delivery_config", "fanout_backpressure_max_wait_seconds") * 1000,
+		FanoutModePaced:             prometheusGaugeValue(text, "pogo_websocket_delivery_config", "fanout_mode_paced"),
+		FanoutRoundSize:             prometheusGaugeValue(text, "pogo_websocket_delivery_config", "fanout_round_size"),
+		FanoutRoundYieldMs:          prometheusGaugeValue(text, "pogo_websocket_delivery_config", "fanout_round_yield_seconds") * 1000,
+		EnableCompression:           prometheusGaugeValue(text, "pogo_websocket_delivery_config", "enable_compression"),
 	}, nil
 }
 

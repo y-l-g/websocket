@@ -36,6 +36,14 @@ POGO_WS_HOT_PATH_METRICS=true ./benchmarks/laravel-broadcast/run-pogo-tuning.sh
 
 This runs only Pogo and Go receiver scenarios across delivery knobs: write burst sizes (`1`, `8`, `16`, `64`), fanout backpressure thresholds (`1`, `4`, `16`, `64`), and compression off/on at payload sizes `1024` and `4096`. The summary table is written to `benchmarks/laravel-broadcast/results/run-*-pogo-tuning-audit.tsv`.
 
+For the structural paced-fanout experiment:
+
+```bash
+POGO_WS_HOT_PATH_METRICS=true ./benchmarks/laravel-broadcast/run-pogo-structural.sh
+```
+
+This runs only Pogo and Go receiver scenarios for `burst` baseline and paced fanout rounds (`8`, `16`, `32`, plus `16` with `1ms` yield). The summary table is written to `benchmarks/laravel-broadcast/results/run-*-pogo-structural-audit.tsv` and includes fanout duration, queue depth, queue residence, write-complete p95, and receiver p95/p99.
+
 Manual runs are still possible:
 
 ```bash
@@ -56,7 +64,7 @@ The sharded k6 run starts five listener containers at `SHARD_VUS=100` each by de
 
 The Go receiver accepts the same core benchmark environment as k6 (`ROLE`, `VUS`, `MSG_COUNT`, `PAYLOAD_SIZE`, `PUBLISH_BATCHES`, `BATCH_INTERVAL_SECONDS`, `RAMP_UP_SECONDS`, `PUBLISH_START_SECONDS`, `PUBLISH_MAX_DURATION_SECONDS`, `DRAIN_SECONDS`, `HTTP_HOST`, `WS_HOST`, ports, `APP_KEY`, `RESULT_FILE`, `METRICS_URL`, and `METRICS_FILE`). `ROLE=both` is the default; `ROLE=listeners` opens websocket listeners only, and `ROLE=publisher` triggers `/fire` only.
 
-The Pogo benchmark app also accepts delivery-tuning overrides: `POGO_WS_OUTBOUND_QUEUE_SIZE`, `POGO_WS_WRITE_BURST_SIZE`, `POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD`, `POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT`, and `POGO_WS_ENABLE_COMPRESSION`.
+The Pogo benchmark app also accepts delivery-tuning overrides: `POGO_WS_OUTBOUND_QUEUE_SIZE`, `POGO_WS_WRITE_BURST_SIZE`, `POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD`, `POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT`, `POGO_WS_FANOUT_MODE`, `POGO_WS_FANOUT_ROUND_SIZE`, `POGO_WS_FANOUT_ROUND_YIELD`, and `POGO_WS_ENABLE_COMPRESSION`.
 
 If `HOLD_SECONDS` is not set, the benchmark derives it from `PUBLISH_START_SECONDS + PUBLISH_MAX_DURATION_SECONDS + DRAIN_SECONDS - RAMP_UP_SECONDS`. If `HOLD_SECONDS` is set too low, k6 aborts instead of writing a misleading delivery summary.
 

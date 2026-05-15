@@ -17,6 +17,9 @@ func newTestSubManager() *SubscriptionManager {
 		nil,
 		DefaultFanoutBackpressureThreshold,
 		DefaultFanoutBackpressureMaxWait,
+		DefaultFanoutMode,
+		DefaultFanoutRoundSize,
+		DefaultFanoutRoundYield,
 	)
 }
 
@@ -124,7 +127,7 @@ func TestMemberTracking(t *testing.T) {
 }
 
 func TestBroadcastToChannelWaitsForQueuedClients(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait)
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait, DefaultFanoutMode, DefaultFanoutRoundSize, DefaultFanoutRoundYield)
 	client := &Client{ID: "c1", send: make(chan any, DefaultFanoutBackpressureThreshold+1)}
 	for i := 0; i < DefaultFanoutBackpressureThreshold; i++ {
 		client.send <- []byte("queued")
@@ -160,7 +163,7 @@ func TestBroadcastToChannelWaitsForQueuedClients(t *testing.T) {
 }
 
 func TestBroadcastToChannelGivesUpOnQueuedClients(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait)
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait, DefaultFanoutMode, DefaultFanoutRoundSize, DefaultFanoutRoundYield)
 	client := &Client{ID: "c1", send: make(chan any, DefaultFanoutBackpressureThreshold+1)}
 	for i := 0; i < DefaultFanoutBackpressureThreshold; i++ {
 		client.send <- []byte("queued")
@@ -188,7 +191,7 @@ func TestBroadcastToChannelGivesUpOnQueuedClients(t *testing.T) {
 }
 
 func TestBroadcastToChannelHonorsConfiguredBackpressure(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, 2, 3*time.Millisecond)
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, 2, 3*time.Millisecond, DefaultFanoutMode, DefaultFanoutRoundSize, DefaultFanoutRoundYield)
 	client := &Client{ID: "c1", send: make(chan any, 3)}
 	for i := 0; i < 2; i++ {
 		client.send <- []byte("queued")
@@ -208,5 +211,31 @@ func TestBroadcastToChannelHonorsConfiguredBackpressure(t *testing.T) {
 	}
 	if elapsed > 50*time.Millisecond {
 		t.Fatalf("Expected bounded wait, waited %s", elapsed)
+	}
+}
+
+func TestBroadcastToChannelHonorsPacedFanout(t *testing.T) {
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait, fanoutModePaced, 2, time.Millisecond)
+	clients := make(map[*Client]bool)
+	for i := 0; i < 5; i++ {
+		client := &Client{ID: "c", send: make(chan any, 1)}
+		clients[client] = true
+	}
+	sm.channels["public-test"] = clients
+
+	start := time.Now()
+	sm.BroadcastToChannel(&BroadcastMessage{
+		Channel: "public-test",
+		Event:   "bench.event",
+		Data:    json.RawMessage(`{}`),
+	})
+
+	if elapsed := time.Since(start); elapsed < 2*time.Millisecond {
+		t.Fatalf("Expected paced fanout to yield between rounds, only took %s", elapsed)
+	}
+	for client := range clients {
+		if len(client.send) != 1 {
+			t.Fatalf("Expected client to receive one message, got queue depth %d", len(client.send))
+		}
 	}
 }

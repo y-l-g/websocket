@@ -14,7 +14,10 @@ import (
 )
 
 const (
-	DefaultOutboundQueueSize = 256
+	DefaultOutboundQueueSize               = 256
+	DefaultFanoutMode                      = "burst"
+	DefaultFanoutRoundSize                 = 16
+	DefaultFanoutRoundYield  time.Duration = 0
 )
 
 var (
@@ -60,6 +63,9 @@ type Hub struct {
 	writeBurstSize              int
 	fanoutBackpressureThreshold int
 	fanoutBackpressureMaxWait   time.Duration
+	fanoutMode                  string
+	fanoutRoundSize             int
+	fanoutRoundYield            time.Duration
 
 	// Synchronization
 	clientsMu sync.RWMutex
@@ -100,6 +106,9 @@ type DeliveryConfig struct {
 	WriteBurstSize              int
 	FanoutBackpressureThreshold int
 	FanoutBackpressureMaxWait   time.Duration
+	FanoutMode                  string
+	FanoutRoundSize             int
+	FanoutRoundYield            time.Duration
 	EnableCompression           bool
 }
 
@@ -109,6 +118,9 @@ func DefaultDeliveryConfig() DeliveryConfig {
 		WriteBurstSize:              DefaultWriteBurstSize,
 		FanoutBackpressureThreshold: DefaultFanoutBackpressureThreshold,
 		FanoutBackpressureMaxWait:   DefaultFanoutBackpressureMaxWait,
+		FanoutMode:                  DefaultFanoutMode,
+		FanoutRoundSize:             DefaultFanoutRoundSize,
+		FanoutRoundYield:            DefaultFanoutRoundYield,
 	}
 }
 
@@ -125,6 +137,15 @@ func (c DeliveryConfig) withDefaults() DeliveryConfig {
 	}
 	if c.FanoutBackpressureMaxWait <= 0 {
 		c.FanoutBackpressureMaxWait = defaults.FanoutBackpressureMaxWait
+	}
+	if c.FanoutMode == "" {
+		c.FanoutMode = defaults.FanoutMode
+	}
+	if c.FanoutRoundSize <= 0 {
+		c.FanoutRoundSize = defaults.FanoutRoundSize
+	}
+	if c.FanoutRoundYield < 0 {
+		c.FanoutRoundYield = defaults.FanoutRoundYield
 	}
 	return c
 }
@@ -161,6 +182,9 @@ func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metr
 		writeBurstSize:              delivery.WriteBurstSize,
 		fanoutBackpressureThreshold: delivery.FanoutBackpressureThreshold,
 		fanoutBackpressureMaxWait:   delivery.FanoutBackpressureMaxWait,
+		fanoutMode:                  delivery.FanoutMode,
+		fanoutRoundSize:             delivery.FanoutRoundSize,
+		fanoutRoundYield:            delivery.FanoutRoundYield,
 		done:                        make(chan struct{}),
 		clientMessage:               make(chan *ClientMessageWrapper),
 		subscribe:                   make(chan *Subscription),
@@ -170,7 +194,7 @@ func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metr
 	}
 
 	for i := 0; i < numShards; i++ {
-		h.shards[i] = NewHubShard(i, logger, ctx, metrics, webhook, delivery.FanoutBackpressureThreshold, delivery.FanoutBackpressureMaxWait)
+		h.shards[i] = NewHubShard(i, logger, ctx, metrics, webhook, delivery.FanoutBackpressureThreshold, delivery.FanoutBackpressureMaxWait, delivery.FanoutMode, delivery.FanoutRoundSize, delivery.FanoutRoundYield)
 		go h.shards[i].Run()
 	}
 

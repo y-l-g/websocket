@@ -30,6 +30,15 @@ func TestWebsocketModuleDeliveryConfigDefaults(t *testing.T) {
 	if m.fanoutBackpressureMaxWaitDuration != DefaultFanoutBackpressureMaxWait {
 		t.Fatalf("fanoutBackpressureMaxWaitDuration = %s, want %s", m.fanoutBackpressureMaxWaitDuration, DefaultFanoutBackpressureMaxWait)
 	}
+	if m.FanoutMode != DefaultFanoutMode {
+		t.Fatalf("FanoutMode = %s, want %s", m.FanoutMode, DefaultFanoutMode)
+	}
+	if m.FanoutRoundSize != DefaultFanoutRoundSize {
+		t.Fatalf("FanoutRoundSize = %d, want %d", m.FanoutRoundSize, DefaultFanoutRoundSize)
+	}
+	if m.fanoutRoundYieldDuration != DefaultFanoutRoundYield {
+		t.Fatalf("fanoutRoundYieldDuration = %s, want %s", m.fanoutRoundYieldDuration, DefaultFanoutRoundYield)
+	}
 }
 
 func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
@@ -41,6 +50,9 @@ func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
 		write_burst_size 8
 		fanout_backpressure_threshold 4
 		fanout_backpressure_max_wait 5ms
+		fanout_mode paced
+		fanout_round_size 8
+		fanout_round_yield 1ms
 		enable_compression true
 	}`)
 
@@ -64,6 +76,15 @@ func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
 	if m.fanoutBackpressureMaxWaitDuration != 5*time.Millisecond {
 		t.Fatalf("fanoutBackpressureMaxWaitDuration = %s, want 5ms", m.fanoutBackpressureMaxWaitDuration)
 	}
+	if m.FanoutMode != fanoutModePaced {
+		t.Fatalf("FanoutMode = %s, want paced", m.FanoutMode)
+	}
+	if m.FanoutRoundSize != 8 {
+		t.Fatalf("FanoutRoundSize = %d, want 8", m.FanoutRoundSize)
+	}
+	if m.fanoutRoundYieldDuration != time.Millisecond {
+		t.Fatalf("fanoutRoundYieldDuration = %s, want 1ms", m.fanoutRoundYieldDuration)
+	}
 	if !m.EnableCompression {
 		t.Fatal("EnableCompression = false, want true")
 	}
@@ -74,6 +95,9 @@ func TestWebsocketModuleDeliveryConfigEnvOverrides(t *testing.T) {
 	t.Setenv("POGO_WS_WRITE_BURST_SIZE", "8")
 	t.Setenv("POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD", "4")
 	t.Setenv("POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT", "5ms")
+	t.Setenv("POGO_WS_FANOUT_MODE", "paced")
+	t.Setenv("POGO_WS_FANOUT_ROUND_SIZE", "8")
+	t.Setenv("POGO_WS_FANOUT_ROUND_YIELD", "1ms")
 	t.Setenv("POGO_WS_ENABLE_COMPRESSION", "true")
 
 	m := WebsocketModule{
@@ -84,6 +108,9 @@ func TestWebsocketModuleDeliveryConfigEnvOverrides(t *testing.T) {
 		WriteBurstSize:              DefaultWriteBurstSize,
 		FanoutBackpressureThreshold: DefaultFanoutBackpressureThreshold,
 		FanoutBackpressureMaxWait:   DefaultFanoutBackpressureMaxWait.String(),
+		FanoutMode:                  DefaultFanoutMode,
+		FanoutRoundSize:             DefaultFanoutRoundSize,
+		FanoutRoundYield:            DefaultFanoutRoundYield.String(),
 	}
 
 	if err := m.validateAndDefaults(); err != nil {
@@ -101,6 +128,15 @@ func TestWebsocketModuleDeliveryConfigEnvOverrides(t *testing.T) {
 	}
 	if m.fanoutBackpressureMaxWaitDuration != 5*time.Millisecond {
 		t.Fatalf("fanoutBackpressureMaxWaitDuration = %s, want 5ms", m.fanoutBackpressureMaxWaitDuration)
+	}
+	if m.FanoutMode != fanoutModePaced {
+		t.Fatalf("FanoutMode = %s, want paced", m.FanoutMode)
+	}
+	if m.FanoutRoundSize != 8 {
+		t.Fatalf("FanoutRoundSize = %d, want 8", m.FanoutRoundSize)
+	}
+	if m.fanoutRoundYieldDuration != time.Millisecond {
+		t.Fatalf("fanoutRoundYieldDuration = %s, want 1ms", m.fanoutRoundYieldDuration)
 	}
 	if !m.EnableCompression {
 		t.Fatal("EnableCompression = false, want true")

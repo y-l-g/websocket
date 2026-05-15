@@ -244,6 +244,10 @@ function scrapePrometheusMetrics() {
         fanoutBackpressureThreshold: counterValue(samples, "pogo_websocket_delivery_config", { key: "fanout_backpressure_threshold" }),
         fanoutBackpressureMaxWaitMs:
           counterValue(samples, "pogo_websocket_delivery_config", { key: "fanout_backpressure_max_wait_seconds" }) * 1000,
+        fanoutModePaced: counterValue(samples, "pogo_websocket_delivery_config", { key: "fanout_mode_paced" }),
+        fanoutRoundSize: counterValue(samples, "pogo_websocket_delivery_config", { key: "fanout_round_size" }),
+        fanoutRoundYieldMs:
+          counterValue(samples, "pogo_websocket_delivery_config", { key: "fanout_round_yield_seconds" }) * 1000,
         enableCompression: counterValue(samples, "pogo_websocket_delivery_config", { key: "enable_compression" }),
       },
     },
@@ -440,6 +444,9 @@ export function handleSummary(data) {
         writeBurstSize: prometheus.derived.deliveryConfig.writeBurstSize,
         fanoutBackpressureThreshold: prometheus.derived.deliveryConfig.fanoutBackpressureThreshold,
         fanoutBackpressureMaxWaitMs: prometheus.derived.deliveryConfig.fanoutBackpressureMaxWaitMs,
+        fanoutModePaced: prometheus.derived.deliveryConfig.fanoutModePaced,
+        fanoutRoundSize: prometheus.derived.deliveryConfig.fanoutRoundSize,
+        fanoutRoundYieldMs: prometheus.derived.deliveryConfig.fanoutRoundYieldMs,
         enableCompression: prometheus.derived.deliveryConfig.enableCompression,
       }
     : null;
@@ -550,6 +557,9 @@ export function handleSummary(data) {
     diagnosticLines.push(`delivery_write_burst_size=${diagnostics.writeBurstSize}`);
     diagnosticLines.push(`delivery_fanout_backpressure_threshold=${diagnostics.fanoutBackpressureThreshold}`);
     diagnosticLines.push(`delivery_fanout_backpressure_max_wait_ms=${diagnostics.fanoutBackpressureMaxWaitMs}`);
+    diagnosticLines.push(`delivery_fanout_mode_paced=${diagnostics.fanoutModePaced}`);
+    diagnosticLines.push(`delivery_fanout_round_size=${diagnostics.fanoutRoundSize}`);
+    diagnosticLines.push(`delivery_fanout_round_yield_ms=${diagnostics.fanoutRoundYieldMs}`);
     diagnosticLines.push(`delivery_enable_compression=${diagnostics.enableCompression}`);
     diagnosticLines.push(`client_dropped_messages=${diagnostics.clientDroppedMessagesTotal}`);
     diagnosticLines.push(`broker_dropped_messages=${diagnostics.brokerDroppedMessagesTotal}`);

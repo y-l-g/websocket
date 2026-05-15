@@ -197,6 +197,13 @@ func (m *Metrics) SetDeliveryConfig(config DeliveryConfig) {
 	m.DeliveryConfig.WithLabelValues("write_burst_size").Set(float64(config.WriteBurstSize))
 	m.DeliveryConfig.WithLabelValues("fanout_backpressure_threshold").Set(float64(config.FanoutBackpressureThreshold))
 	m.DeliveryConfig.WithLabelValues("fanout_backpressure_max_wait_seconds").Set(config.FanoutBackpressureMaxWait.Seconds())
+	if config.FanoutMode == fanoutModePaced {
+		m.DeliveryConfig.WithLabelValues("fanout_mode_paced").Set(1)
+	} else {
+		m.DeliveryConfig.WithLabelValues("fanout_mode_paced").Set(0)
+	}
+	m.DeliveryConfig.WithLabelValues("fanout_round_size").Set(float64(config.FanoutRoundSize))
+	m.DeliveryConfig.WithLabelValues("fanout_round_yield_seconds").Set(config.FanoutRoundYield.Seconds())
 	if config.EnableCompression {
 		m.DeliveryConfig.WithLabelValues("enable_compression").Set(1)
 	} else {

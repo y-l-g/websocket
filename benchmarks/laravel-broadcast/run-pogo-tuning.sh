@@ -28,6 +28,9 @@ BASE_OUTBOUND_QUEUE_SIZE="${POGO_WS_OUTBOUND_QUEUE_SIZE:-256}"
 BASE_WRITE_BURST_SIZE="${POGO_WS_WRITE_BURST_SIZE:-64}"
 BASE_FANOUT_THRESHOLD="${POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD:-16}"
 BASE_FANOUT_MAX_WAIT="${POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT:-10ms}"
+BASE_FANOUT_MODE="${POGO_WS_FANOUT_MODE:-burst}"
+BASE_FANOUT_ROUND_SIZE="${POGO_WS_FANOUT_ROUND_SIZE:-16}"
+BASE_FANOUT_ROUND_YIELD="${POGO_WS_FANOUT_ROUND_YIELD:-0ms}"
 BASE_COMPRESSION="${POGO_WS_ENABLE_COMPRESSION:-false}"
 
 cat > "$COMPOSE_OVERRIDE_FILE" <<YAML
@@ -51,6 +54,9 @@ render_runtime_caddyfile() {
     -e "s/^[[:space:]]*write_burst_size .*/            write_burst_size $write_burst_size/" \
     -e "s/^[[:space:]]*fanout_backpressure_threshold .*/            fanout_backpressure_threshold $fanout_threshold/" \
     -e "s/^[[:space:]]*fanout_backpressure_max_wait .*/            fanout_backpressure_max_wait $BASE_FANOUT_MAX_WAIT/" \
+    -e "s/^[[:space:]]*fanout_mode .*/            fanout_mode $BASE_FANOUT_MODE/" \
+    -e "s/^[[:space:]]*fanout_round_size .*/            fanout_round_size $BASE_FANOUT_ROUND_SIZE/" \
+    -e "s/^[[:space:]]*fanout_round_yield .*/            fanout_round_yield $BASE_FANOUT_ROUND_YIELD/" \
     -e "s/^[[:space:]]*enable_compression .*/            enable_compression $compression/" \
     "$BENCH_DIR/pogo/Caddyfile" > "$RUNTIME_CADDYFILE"
 
@@ -63,6 +69,9 @@ services:
       POGO_WS_WRITE_BURST_SIZE: "$write_burst_size"
       POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD: "$fanout_threshold"
       POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT: "$BASE_FANOUT_MAX_WAIT"
+      POGO_WS_FANOUT_MODE: "$BASE_FANOUT_MODE"
+      POGO_WS_FANOUT_ROUND_SIZE: "$BASE_FANOUT_ROUND_SIZE"
+      POGO_WS_FANOUT_ROUND_YIELD: "$BASE_FANOUT_ROUND_YIELD"
       POGO_WS_ENABLE_COMPRESSION: "$compression"
     volumes:
       - "$RUNTIME_CADDYFILE:/var/www/html/Caddyfile:ro"
