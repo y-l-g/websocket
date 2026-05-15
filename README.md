@@ -37,36 +37,38 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
 
 ## Installation
 
-### Step 1: Build the Binary
+### Step 1: Docker
 
-#### Pre-built Binary or Docker (Recommended)
+Build a FrankenPHP binary that includes Pogo WebSocket with `xcaddy`. See the official
+[FrankenPHP Docker documentation](https://frankenphp.dev/docs/docker/) for the
+base image details.
 
-You can use the pre-compiled binaries or Docker images that already include the websocket, queue, and scheduler modules.
+Example Dockerfile from this repository root:
 
-* **Binaries:** Download from [FrankenPHP with websocket, queue, and scheduler releases](https://github.com/y-l-g/websocket/releases).
-* **Docker:** Use the [docker image](https://github.com/y-l-g?tab=packages&repo_name=websocket).
+```dockerfile
+FROM dunglas/frankenphp:builder AS builder
 
-#### Advanced Host Build
+COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
+COPY . /src/websocket
 
-Only use a host-native `xcaddy` build if your host has a ZTS PHP development install with `php-config` available. A regular PHP CLI runtime is not enough, and an NTS build cannot be used to build this extension.
+RUN CGO_ENABLED=1 \
+    XCADDY_SETCAP=1 \
+    XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx" \
+    CGO_CFLAGS="$(php-config --includes)" \
+    CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
+    xcaddy build \
+        --output /usr/local/bin/frankenphp \
+        --with github.com/dunglas/frankenphp=./ \
+        --with github.com/dunglas/frankenphp/caddy=./caddy  \
+        --with github.com/dunglas/caddy-cbrotli \
+        --with github.com/y-l-g/websocket/module=./src/websocket/module
 
-If you intentionally maintain a host build environment, install `xcaddy` with Go and run:
+FROM dunglas/frankenphp AS runner
 
-```bash
-go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
-
-CGO_ENABLED=1 \
-CGO_CFLAGS="-D_GNU_SOURCE $(php-config --includes)" \
-CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
-$(go env GOPATH)/bin/xcaddy build \
-    --output frankenphp \
-    --with github.com/dunglas/frankenphp@v1.12.2 \
-    --with github.com/dunglas/frankenphp/caddy@v1.12.2 \
-    --with github.com/dunglas/caddy-cbrotli@v1.0.1 \
-    --with github.com/y-l-g/queue/module@main \
-    --with github.com/y-l-g/scheduler/module@main \
-    --with github.com/y-l-g/websocket/module=./module
+COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
 ```
+
+Then copy your app and `Caddyfile` into the runner image as usual.
 
 ### Step 2: Install the Laravel Broadcast Driver
 
@@ -152,7 +154,7 @@ VITE_POGO_PORT=80 #your site port
 VITE_POGO_WSS_PORT=443 #your site port
 ```
 
-Start octane (`frankenphp` must be compiled with `pogo`; use the Docker image or a compatible local binary).
+Start octane (`frankenphp` must be compiled with `pogo_websocket`).
 
 ```bash
 php artisan octane:start --caddyfile=Caddyfile

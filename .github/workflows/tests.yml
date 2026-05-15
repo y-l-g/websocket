@@ -1,17 +1,17 @@
-name: Build & Release
+---
+name: Tests
 
 on:
   push:
     branches:
       - main
-    tags:
-      - "v*"
+
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build-and-test:
-    name: Build & Test (Linux)
+  test:
+    name: Test
     runs-on: ubuntu-latest
     env:
       CGO_ENABLED: 1
@@ -50,12 +50,12 @@ jobs:
           echo "CGO_CFLAGS=-D_GNU_SOURCE $(php-config --includes)" >> $GITHUB_ENV
           echo "CGO_LDFLAGS=$(php-config --ldflags) $(php-config --libs)" >> $GITHUB_ENV
 
-      - name: Build Custom FrankenPHP
+      - name: Build test FrankenPHP binary
         env:
           XCADDY_GO_BUILD_FLAGS: "-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher"
         run: |
           xcaddy build \
-            --output frankenphp-linux-x86_64 \
+            --output frankenphp-test \
             --with github.com/dunglas/frankenphp@v1.12.2 \
             --with github.com/dunglas/frankenphp/caddy@v1.12.2 \
             --with github.com/dunglas/caddy-cbrotli@v1.0.1 \
@@ -63,56 +63,21 @@ jobs:
             --with github.com/y-l-g/scheduler/module@main \
             --with github.com/y-l-g/websocket/module=./module
 
-      - name: Run Go Tests
+      - name: Run Go tests
         env:
           GOFLAGS: "-tags=nobadger,nomysql,nopgx,nowatcher"
         run: |
-          cp frankenphp-linux-x86_64 ./module/frankenphp
+          cp frankenphp-test ./module/frankenphp
           cd module
           go test -v -race .
           go test -v -race ./tests/integration/...
           go test -v -race ./cmd/bench-receiver/...
-          cd ../
 
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-progress
 
-      - name: Run PHP Tests via FrankenPHP
-        run: ./frankenphp-linux-x86_64 php-cli ./vendor/bin/phpunit -c lib/phpunit.xml lib
+      - name: Run PHP tests
+        run: ./frankenphp-test php-cli ./vendor/bin/phpunit -c lib/phpunit.xml lib
 
-      - name: Run PHPStan (Static Analysis)
+      - name: Run PHPStan
         run: ./vendor/bin/phpstan analyze --configuration=lib/phpstan.neon --error-format=github
-
-      - name: Upload Binary as Artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: frankenphp-binary
-          path: frankenphp-linux-x86_64
-
-  release:
-    name: Create GitHub Release
-    needs: build-and-test
-    if: startsWith(github.ref, 'refs/tags/') || github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download Binary
-        uses: actions/download-artifact@v8
-        with:
-          name: frankenphp-binary
-
-      - name: Rename binary for Nightly
-        if: github.ref == 'refs/heads/main'
-        run: mv frankenphp-linux-x86_64 frankenphp-linux-x86_64-nightly
-
-      - name: Create or Update Release
-        uses: softprops/action-gh-release@v3
-        with:
-          files: |
-            frankenphp-linux-x86_64*
-          tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || 'nightly' }}
-          prerelease: ${{ !startsWith(github.ref, 'refs/tags/') }}
-          draft: false
-          generate_release_notes: true
-          make_latest: ${{ startsWith(github.ref, 'refs/tags/') }}
