@@ -2,8 +2,6 @@
 
 ## Warning
 
-This project is highly experimental, use with caution.
-
 **The Native, High-Performance Real-Time Solution for PHP.**
 
 - A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
