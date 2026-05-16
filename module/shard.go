@@ -9,6 +9,7 @@ import (
 
 type HubShard struct {
 	id          int
+	appID       string
 	subs        *SubscriptionManager
 	broadcast   chan *BroadcastMessage
 	subscribe   chan *Subscription
@@ -20,18 +21,33 @@ type HubShard struct {
 	ctx         context.Context
 }
 
-func NewHubShard(id int, logger *zap.Logger, ctx context.Context, metrics *Metrics, webhook *WebhookManager) *HubShard {
+func NewHubShard(id int, appID string, logger *zap.Logger, ctx context.Context, metrics *Metrics, webhook *WebhookManager, queueSize int) *HubShard {
+	if queueSize <= 0 {
+		queueSize = DefaultShardQueueSize
+	}
 	return &HubShard{
 		id:          id,
+		appID:       appID,
 		subs:        NewSubscriptionManager(logger, metrics, webhook),
-		broadcast:   make(chan *BroadcastMessage),
-		subscribe:   make(chan *Subscription),
-		unsubscribe: make(chan *Subscription),
-		clientMsg:   make(chan *ClientMessageWrapper),
-		cleanup:     make(chan *Client),
+		broadcast:   make(chan *BroadcastMessage, queueSize),
+		subscribe:   make(chan *Subscription, queueSize),
+		unsubscribe: make(chan *Subscription, queueSize),
+		clientMsg:   make(chan *ClientMessageWrapper, queueSize),
+		cleanup:     make(chan *Client, queueSize),
 		logger:      logger,
 		metrics:     metrics,
 		ctx:         ctx,
+	}
+}
+
+func (s *HubShard) enqueueBroadcast(msg *BroadcastMessage) {
+	select {
+	case s.broadcast <- msg:
+	default:
+		if s.metrics != nil {
+			s.metrics.BrokerDropped.WithLabelValues(s.appID, "shard_queue_full").Inc()
+		}
+		trySendPublishResult(msg, PublishShardQueueFull)
 	}
 }
 
@@ -49,6 +65,7 @@ func (s *HubShard) Run() {
 			s.subs.Unsubscribe(sub.Client, sub.Channel)
 
 		case msg := <-s.broadcast:
+			trySendPublishResult(msg, PublishOK)
 			if s.metrics != nil && s.metrics.HotPathEnabled && !msg.BrokerReceivedAt.IsZero() {
 				now := time.Now()
 				delay := now.Sub(msg.BrokerReceivedAt)
@@ -66,5 +83,15 @@ func (s *HubShard) Run() {
 		case <-s.ctx.Done():
 			return
 		}
+	}
+}
+
+func trySendPublishResult(msg *BroadcastMessage, status PublishStatus) {
+	if msg == nil || msg.LocalResult == nil {
+		return
+	}
+	select {
+	case msg.LocalResult <- status:
+	default:
 	}
 }

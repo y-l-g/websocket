@@ -9,8 +9,8 @@ import (
 	"go.uber.org/zap"
 )
 
-func TestMemoryBrokerPublishWaitsForSubscriber(t *testing.T) {
-	broker := NewMemoryBroker(zap.NewNop(), nil)
+func TestMemoryBrokerPublishQueuesWhenCapacityAvailable(t *testing.T) {
+	broker := NewMemoryBroker(zap.NewNop(), nil, 1)
 	defer func() { _ = broker.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -21,15 +21,8 @@ func TestMemoryBrokerPublishWaitsForSubscriber(t *testing.T) {
 		t.Fatalf("Subscribe failed: %v", err)
 	}
 
-	done := make(chan error, 1)
-	go func() {
-		done <- broker.Publish(ctx, &BroadcastMessage{Channel: "test", Event: "event"})
-	}()
-
-	select {
-	case err := <-done:
-		t.Fatalf("Publish returned before subscriber received message: %v", err)
-	case <-time.After(5 * time.Millisecond):
+	if err := broker.Publish(ctx, &BroadcastMessage{Channel: "test", Event: "event"}); err != nil {
+		t.Fatalf("Publish returned error: %v", err)
 	}
 
 	select {
@@ -37,14 +30,18 @@ func TestMemoryBrokerPublishWaitsForSubscriber(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("Timed out waiting for broker message")
 	}
+}
 
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Publish returned error: %v", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Publish did not complete after subscriber received message")
+func TestMemoryBrokerPublishFailsWhenQueueFull(t *testing.T) {
+	broker := NewMemoryBroker(zap.NewNop(), nil, 1)
+	defer func() { _ = broker.Close() }()
+
+	ctx := context.Background()
+	if err := broker.Publish(ctx, &BroadcastMessage{Channel: "test", Event: "event"}); err != nil {
+		t.Fatalf("First publish returned error: %v", err)
+	}
+	if err := broker.Publish(ctx, &BroadcastMessage{Channel: "test", Event: "event"}); !errors.Is(err, ErrBrokerQueueFull) {
+		t.Fatalf("Expected ErrBrokerQueueFull, got %v", err)
 	}
 }
 

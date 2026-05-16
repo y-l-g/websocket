@@ -107,9 +107,10 @@ Configure the module within your `Caddyfile` at the root of your laravel project
     route /app/* {
         pogo_websocket {
             app_id          pogo-app
+            app_secret      {$WS_APP_SECRET}
             auth_path       /pogo/auth
             auth_script     public/websocket-worker.php
-            webhook_secret  super-secret-key
+            webhook_secret  {$POGO_WEBHOOK_SECRET}
             allowed_origins https://app.example.com https://admin.example.com
 
             handshake_rate  100         # New connection attempts per second (Default: 100)
@@ -117,6 +118,8 @@ Configure the module within your `Caddyfile` at the root of your laravel project
             max_connections 10000       # Max concurrent clients
             max_auth_body   16384       # Max PHP Auth response size (bytes)
             max_concurrent_auth 100     # Max concurrent PHP Auth requests (DoS Protection)
+            broker_queue_size 1024      # Internal broker queue before publish fails fast
+            shard_queue_size 1024       # Per-shard control/broadcast queue
 
             num_workers     2           # Number of PHP workers dedicated to Auth
             num_shards      8           # Internal sharding (Default: 2 * CPU Cores)
@@ -150,15 +153,18 @@ when your frontend connects from a different origin; entries must be exact
 Native publish functions return `0` on success. Nonzero status codes indicate:
 `1` hub missing, `2` channel too long, `3` event too long, `4` payload too large,
 `5` invalid payload JSON, `6` broker publish failed, and `7` invalid multi-channel
-JSON. The Laravel broadcaster turns these failures into `BroadcastException`.
+JSON, `8` broker queue full, and `9` shard queue full. The Laravel broadcaster
+turns these failures into `BroadcastException`.
 
 Fill your .env
 
 ```ini
 BROADCAST_CONNECTION=pogo
 WS_APP_ID=pogo-app
-WS_APP_SECRET=super-secret-key #needed for pusher client but not really sensitive i guess
+WS_APP_SECRET=change-me-to-a-long-random-secret
+POGO_WEBHOOK_SECRET=change-me-to-a-different-random-secret
 
+VITE_POGO_APP_KEY="${WS_APP_ID}"
 VITE_POGO_HOST=localhost #your site adress
 VITE_POGO_PORT=80 #your site port
 VITE_POGO_WSS_PORT=443 #your site port
@@ -190,11 +196,13 @@ Set `POGO_WS_HOT_PATH_METRICS=true` to enable detailed per-message fanout, queue
 | `pogo_websocket_subscriptions_total`           | Counter   | Total active subscriptions.                                 |
 | `pogo_websocket_auth_duration_seconds`         | Histogram | Latency of the PHP Auth Worker.                             |
 | `pogo_websocket_client_dropped_messages_total` | Counter   | Messages dropped due to full client buffer.                 |
+| `pogo_websocket_publish_failures_total`        | Counter   | Failed publish attempts by app and reason.                  |
+| `pogo_websocket_webhook_dropped_total`         | Counter   | Webhook notifications dropped by reason.                    |
 
 ---
 
 ## Troubleshooting
 
 - **4100 Over Capacity:** Increase `max_connections` in Caddyfile.
-- **4009 Connection Unauthorized:** Check `webhook_secret` matches `WS_APP_SECRET`.
+- **4009 Connection Unauthorized:** Check `app_secret` matches `WS_APP_SECRET`.
 - **Too Many Requests:** Tune `handshake_rate` if legitimate traffic is being blocked.

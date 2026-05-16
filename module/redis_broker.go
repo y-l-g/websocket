@@ -14,14 +14,19 @@ import (
 const RedisChannelName = "frankenphp:cluster:broadcast"
 
 type RedisBroker struct {
-	client *redis.Client
-	logger *zap.Logger
-	scope  string
+	client    *redis.Client
+	logger    *zap.Logger
+	scope     string
+	queueSize int
 }
 
-func NewRedisBroker(logger *zap.Logger, addr, password string, db int, useTLS bool) *RedisBroker {
+func NewRedisBroker(logger *zap.Logger, addr, password string, db int, useTLS bool, queueSize ...int) *RedisBroker {
 	if addr == "" {
 		addr = "localhost:6379"
+	}
+	size := DefaultBrokerQueueSize
+	if len(queueSize) > 0 && queueSize[0] > 0 {
+		size = queueSize[0]
 	}
 
 	opts := &redis.Options{
@@ -39,9 +44,10 @@ func NewRedisBroker(logger *zap.Logger, addr, password string, db int, useTLS bo
 	rdb := redis.NewClient(opts)
 
 	return &RedisBroker{
-		client: rdb,
-		logger: logger,
-		scope:  fmt.Sprintf("redis:%s:%d:%s", addr, db, RedisChannelName),
+		client:    rdb,
+		logger:    logger,
+		scope:     fmt.Sprintf("redis:%s:%d:%s", addr, db, RedisChannelName),
+		queueSize: size,
 	}
 }
 
@@ -76,7 +82,7 @@ func (r *RedisBroker) Publish(ctx context.Context, msg *BroadcastMessage) error 
 }
 
 func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, error) {
-	out := make(chan *BroadcastMessage, 256)
+	out := make(chan *BroadcastMessage, r.queueSize)
 
 	go func() {
 		defer close(out)

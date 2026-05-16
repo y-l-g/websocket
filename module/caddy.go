@@ -29,6 +29,7 @@ func init() {
 
 type WebsocketModule struct {
 	AppID              string   `json:"app_id,omitempty"`
+	AppSecret          string   `json:"app_secret,omitempty"`
 	AuthPath           string   `json:"auth_path,omitempty"`
 	AuthScript         string   `json:"auth_script,omitempty"`
 	NumWorkers         int      `json:"num_workers,omitempty"`
@@ -39,6 +40,8 @@ type WebsocketModule struct {
 	HandshakeRate      float64  `json:"handshake_rate,omitempty"`  // New
 	HandshakeBurst     int      `json:"handshake_burst,omitempty"` // New
 	OutboundQueueSize  int      `json:"outbound_queue_size,omitempty"`
+	BrokerQueueSize    int      `json:"broker_queue_size,omitempty"`
+	ShardQueueSize     int      `json:"shard_queue_size,omitempty"`
 	WriteBurstSize     int      `json:"write_burst_size,omitempty"`
 	ClientMsgRateLimit float64  `json:"client_msg_rate_limit,omitempty"`
 	ClientMsgRateBurst int      `json:"client_msg_rate_burst,omitempty"`
@@ -96,13 +99,14 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		m.logger,
 		m.metrics,
 		m.workerHandle,
+		m.AppID,
 		m.AuthPath,
 		m.MaxAuthBody,
 		m.MaxConcurrentAuth,
-		m.WebhookSecret,
+		m.AppSecret,
 	)
 
-	webhook := NewWebhookManager(m.logger, m.WebhookURL, m.WebhookSecret)
+	webhook := NewWebhookManager(m.logger, m.WebhookURL, m.WebhookSecret, m.metrics)
 
 	broker, err := m.setupBroker()
 	if err != nil {
@@ -115,6 +119,8 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		ClientMsgRateLimit: m.ClientMsgRateLimit,
 		ClientMsgRateBurst: m.ClientMsgRateBurst,
 		EnableCompression:  m.EnableCompression,
+		BrokerQueueSize:    m.BrokerQueueSize,
+		ShardQueueSize:     m.ShardQueueSize,
 	}
 	m.hub = NewHub(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker, m.MaxConnections, m.NumShards, m.pingPeriodDuration, delivery)
 	m.metrics.SetDeliveryConfig(delivery.withDefaults())
@@ -155,6 +161,12 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	if m.AuthPath == "" {
 		return fmt.Errorf("the 'auth_path' directive is required")
 	}
+	if m.AppSecret == "" {
+		m.AppSecret = os.Getenv("POGO_WS_APP_SECRET")
+	}
+	if m.AppSecret == "" {
+		return fmt.Errorf("the 'app_secret' directive is required")
+	}
 
 	if m.NumWorkers == 0 {
 		m.NumWorkers = 2
@@ -188,6 +200,18 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	}
 	if m.OutboundQueueSize < 1 {
 		return fmt.Errorf("outbound_queue_size must be greater than 0")
+	}
+	if m.BrokerQueueSize == 0 {
+		m.BrokerQueueSize = defaultDelivery.BrokerQueueSize
+	}
+	if m.BrokerQueueSize < 1 {
+		return fmt.Errorf("broker_queue_size must be greater than 0")
+	}
+	if m.ShardQueueSize == 0 {
+		m.ShardQueueSize = defaultDelivery.ShardQueueSize
+	}
+	if m.ShardQueueSize < 1 {
+		return fmt.Errorf("shard_queue_size must be greater than 0")
 	}
 	if m.WriteBurstSize == 0 {
 		m.WriteBurstSize = defaultDelivery.WriteBurstSize
@@ -292,12 +316,29 @@ func (m *WebsocketModule) checkOrigin(r *http.Request) bool {
 }
 
 func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
+	if value := os.Getenv("POGO_WS_APP_SECRET"); value != "" {
+		m.AppSecret = value
+	}
 	if value := os.Getenv("POGO_WS_OUTBOUND_QUEUE_SIZE"); value != "" {
 		parsed, err := strconv.Atoi(value)
 		if err != nil {
 			return fmt.Errorf("invalid POGO_WS_OUTBOUND_QUEUE_SIZE: %v", err)
 		}
 		m.OutboundQueueSize = parsed
+	}
+	if value := os.Getenv("POGO_WS_BROKER_QUEUE_SIZE"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_BROKER_QUEUE_SIZE: %v", err)
+		}
+		m.BrokerQueueSize = parsed
+	}
+	if value := os.Getenv("POGO_WS_SHARD_QUEUE_SIZE"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil {
+			return fmt.Errorf("invalid POGO_WS_SHARD_QUEUE_SIZE: %v", err)
+		}
+		m.ShardQueueSize = parsed
 	}
 	if value := os.Getenv("POGO_WS_WRITE_BURST_SIZE"); value != "" {
 		parsed, err := strconv.Atoi(value)
@@ -357,10 +398,10 @@ func (m *WebsocketModule) setupWorkers() error {
 func (m *WebsocketModule) setupBroker() (Broker, error) {
 	if m.RedisHost != "" {
 		m.logger.Info("Using Redis Broker", zap.String("host", m.RedisHost), zap.Int("db", m.RedisDB), zap.Bool("tls", m.RedisTLS))
-		return NewRedisBroker(m.logger, m.RedisHost, m.RedisPassword, m.RedisDB, m.RedisTLS), nil
+		return NewRedisBroker(m.logger, m.RedisHost, m.RedisPassword, m.RedisDB, m.RedisTLS, m.BrokerQueueSize), nil
 	}
 	m.logger.Info("Using Memory Broker")
-	return NewMemoryBroker(m.logger, m.metrics), nil
+	return NewMemoryBroker(m.logger, m.metrics, m.BrokerQueueSize), nil
 }
 
 func (m *WebsocketModule) Cleanup() error {
@@ -379,7 +420,7 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 	}
 
 	if proto := r.URL.Query().Get("protocol"); proto != "" {
-		if proto < "5" {
+		if !isSupportedProtocol(proto) {
 			http.Error(w, "Unsupported protocol version", http.StatusBadRequest)
 			return nil
 		}
@@ -387,6 +428,11 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 
 	if !websocket.IsWebSocketUpgrade(r) {
 		return next.ServeHTTP(w, r)
+	}
+
+	if key := appKeyFromPath(r.URL.Path); key != m.AppID {
+		http.Error(w, "Invalid app key", http.StatusForbidden)
+		return nil
 	}
 
 	// Security: Rate Limit Handshakes
@@ -433,6 +479,22 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 	return nil
 }
 
+func isSupportedProtocol(raw string) bool {
+	version, err := strconv.Atoi(raw)
+	return err == nil && version >= 5
+}
+
+func appKeyFromPath(path string) string {
+	key := strings.TrimPrefix(path, "/app/")
+	if key == path {
+		return ""
+	}
+	if idx := strings.IndexByte(key, '/'); idx >= 0 {
+		key = key[:idx]
+	}
+	return key
+}
+
 func (m *WebsocketModule) serveHealth(w http.ResponseWriter) {
 	status := "ok"
 	code := http.StatusOK
@@ -456,6 +518,11 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				m.AppID = d.Val()
+			case "app_secret":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.AppSecret = d.Val()
 			case "auth_path":
 				if !d.NextArg() {
 					return d.ArgErr()
@@ -538,6 +605,24 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Errf("invalid number: %v", err)
 				}
 				m.OutboundQueueSize = c
+			case "broker_queue_size":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				var c int
+				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+				m.BrokerQueueSize = c
+			case "shard_queue_size":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				var c int
+				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
+					return d.Errf("invalid number: %v", err)
+				}
+				m.ShardQueueSize = c
 			case "write_burst_size":
 				if !d.NextArg() {
 					return d.ArgErr()

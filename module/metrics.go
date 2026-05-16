@@ -14,8 +14,11 @@ type Metrics struct {
 	AuthDuration         prometheus.Histogram
 	BreakerTripped       prometheus.Counter
 	AuthFailures         *prometheus.CounterVec
-	DroppedMessages      prometheus.Counter
-	BrokerDropped        prometheus.Counter
+	DroppedMessages      *prometheus.CounterVec
+	BrokerDropped        *prometheus.CounterVec
+	PublishFailures      *prometheus.CounterVec
+	WebhookQueueDepth    prometheus.Gauge
+	WebhookDropped       *prometheus.CounterVec
 	PublishDuration      *prometheus.HistogramVec
 	BrokerToHubDelay     prometheus.Histogram
 	HubToShardDelay      prometheus.Histogram
@@ -63,16 +66,31 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "auth_failures_total",
 			Help:      "Total number of failed auth requests",
 		}, []string{"reason"}),
-		DroppedMessages: prometheus.NewCounter(prometheus.CounterOpts{
+		DroppedMessages: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "pogo_websocket",
 			Name:      "client_dropped_messages_total",
 			Help:      "Number of messages dropped due to slow client consumers",
-		}),
-		BrokerDropped: prometheus.NewCounter(prometheus.CounterOpts{
+		}, []string{"app_id", "reason", "kind"}),
+		BrokerDropped: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "pogo_websocket",
 			Name:      "broker_dropped_messages_total",
 			Help:      "Number of messages dropped by the internal broker due to backpressure",
+		}, []string{"app_id", "reason"}),
+		PublishFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "pogo_websocket",
+			Name:      "publish_failures_total",
+			Help:      "Number of failed publish attempts by reason",
+		}, []string{"app_id", "reason"}),
+		WebhookQueueDepth: prometheus.NewGauge(prometheus.GaugeOpts{
+			Namespace: "pogo_websocket",
+			Name:      "webhook_queue_depth",
+			Help:      "Current number of queued webhook notifications",
 		}),
+		WebhookDropped: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Namespace: "pogo_websocket",
+			Name:      "webhook_dropped_total",
+			Help:      "Number of webhook notifications dropped by reason",
+		}, []string{"reason"}),
 		PublishDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "pogo_websocket",
 			Name:      "publish_duration_seconds",
@@ -142,6 +160,9 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		_ = reg.Register(m.AuthFailures)
 		_ = reg.Register(m.DroppedMessages)
 		_ = reg.Register(m.BrokerDropped)
+		_ = reg.Register(m.PublishFailures)
+		_ = reg.Register(m.WebhookQueueDepth)
+		_ = reg.Register(m.WebhookDropped)
 		_ = reg.Register(m.PublishDuration)
 		_ = reg.Register(m.BrokerToHubDelay)
 		_ = reg.Register(m.HubToShardDelay)
@@ -163,6 +184,8 @@ func (m *Metrics) SetDeliveryConfig(config DeliveryConfig) {
 	}
 	m.DeliveryConfig.WithLabelValues("outbound_queue_size").Set(float64(config.OutboundQueueSize))
 	m.DeliveryConfig.WithLabelValues("write_burst_size").Set(float64(config.WriteBurstSize))
+	m.DeliveryConfig.WithLabelValues("broker_queue_size").Set(float64(config.BrokerQueueSize))
+	m.DeliveryConfig.WithLabelValues("shard_queue_size").Set(float64(config.ShardQueueSize))
 	if config.EnableCompression {
 		m.DeliveryConfig.WithLabelValues("enable_compression").Set(1)
 	} else {

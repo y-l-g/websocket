@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Support\Arrayable;
+use InvalidArgumentException;
 
 class BroadcasterTest extends TestCase
 {
@@ -39,9 +40,15 @@ class BroadcasterTest extends TestCase
         $this->assertEquals('test-app:' . $expectedSig, $response['auth']);
     }
 
+    public function testConstructorRequiresExplicitCredentials()
+    {
+        $this->expectException(InvalidArgumentException::class);
+        new Broadcaster(['app_id' => 'test-app']);
+    }
+
     public function testPresenceChannelReturnsUserData()
     {
-        $broadcaster = Mockery::mock(Broadcaster::class, [['app_id' => 'test-app']])->makePartial();
+        $broadcaster = Mockery::mock(Broadcaster::class, [['app_id' => 'test-app', 'secret' => 'super-secret']])->makePartial();
         $broadcaster->shouldAllowMockingProtectedMethods();
 
         $user = Mockery::mock(Authenticatable::class);
@@ -97,7 +104,7 @@ class BroadcasterTest extends TestCase
 
     public function testBroadcastThrowsWhenExtensionMissing()
     {
-        $broadcaster = new Broadcaster(['app_id' => 'test-app']);
+        $broadcaster = new Broadcaster(['app_id' => 'test-app', 'secret' => 'super-secret']);
         $this->expectException(BroadcastException::class);
         $this->expectExceptionMessage('pogo_extension_not_loaded');
         $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
@@ -105,7 +112,7 @@ class BroadcasterTest extends TestCase
 
     public function testNonBenchmarkAndFailedPayloadEncodingKeepExistingBehavior()
     {
-        $broadcaster = new class (['app_id' => 'test-app']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
             /**
              * @param array<mixed> $payload
              * @return string|false
@@ -124,7 +131,7 @@ class BroadcasterTest extends TestCase
 
     public function testFailedPayloadEncodingThrowsBroadcastException()
     {
-        $broadcaster = new class (['app_id' => 'test-app']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
             /**
              * @param array<mixed> $payload
              * @return string|false
@@ -138,5 +145,18 @@ class BroadcasterTest extends TestCase
         $this->expectException(BroadcastException::class);
         $this->expectExceptionMessage('payload_encode_failed');
         $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
+    }
+
+    public function testNativeStatusReasonsIncludeOverloadFailures()
+    {
+        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+            public function reasonFor(int $status): string
+            {
+                return $this->nativeStatusReason($status);
+            }
+        };
+
+        $this->assertSame('broker_queue_full', $broadcaster->reasonFor(8));
+        $this->assertSame('shard_queue_full', $broadcaster->reasonFor(9));
     }
 }

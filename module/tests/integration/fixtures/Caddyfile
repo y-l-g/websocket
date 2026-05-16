@@ -9,6 +9,7 @@
     route /app/* {
         pogo_websocket {
             app_id          test-app
+            app_secret      super-secret-key
             auth_path       /auth
             auth_script     tests/integration/fixtures/worker.php
             num_workers     1

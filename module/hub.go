@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"sync"
@@ -18,6 +19,8 @@ const (
 	DefaultOutboundQueueSize  = 256
 	DefaultClientMsgRateLimit = 50
 	DefaultClientMsgRateBurst = 20
+	DefaultBrokerQueueSize    = 1024
+	DefaultShardQueueSize     = 1024
 )
 
 var (
@@ -35,6 +38,8 @@ const (
 	PublishInvalidPayloadJSON
 	PublishBrokerFailed
 	PublishInvalidChannelsJSON
+	PublishBrokerQueueFull
+	PublishShardQueueFull
 )
 
 type hubSet struct {
@@ -120,12 +125,13 @@ type Hub struct {
 }
 
 type BroadcastMessage struct {
-	Channel           string          `json:"channel"`
-	Event             string          `json:"event"`
-	Data              json.RawMessage `json:"data"`
-	InternalCreatedAt time.Time       `json:"-"`
-	BrokerReceivedAt  time.Time       `json:"-"`
-	ShardBroadcastAt  time.Time       `json:"-"`
+	Channel           string             `json:"channel"`
+	Event             string             `json:"event"`
+	Data              json.RawMessage    `json:"data"`
+	InternalCreatedAt time.Time          `json:"-"`
+	BrokerReceivedAt  time.Time          `json:"-"`
+	ShardBroadcastAt  time.Time          `json:"-"`
+	LocalResult       chan PublishStatus `json:"-"`
 }
 
 type Subscription struct {
@@ -147,6 +153,8 @@ type DeliveryConfig struct {
 	ClientMsgRateLimit float64
 	ClientMsgRateBurst int
 	EnableCompression  bool
+	BrokerQueueSize    int
+	ShardQueueSize     int
 }
 
 func DefaultDeliveryConfig() DeliveryConfig {
@@ -156,6 +164,8 @@ func DefaultDeliveryConfig() DeliveryConfig {
 		ClientMsgRateLimit: DefaultClientMsgRateLimit,
 		ClientMsgRateBurst: DefaultClientMsgRateBurst,
 		EnableCompression:  false,
+		BrokerQueueSize:    DefaultBrokerQueueSize,
+		ShardQueueSize:     DefaultShardQueueSize,
 	}
 }
 
@@ -172,6 +182,12 @@ func (c DeliveryConfig) withDefaults() DeliveryConfig {
 	}
 	if c.ClientMsgRateBurst <= 0 {
 		c.ClientMsgRateBurst = defaults.ClientMsgRateBurst
+	}
+	if c.BrokerQueueSize <= 0 {
+		c.BrokerQueueSize = defaults.BrokerQueueSize
+	}
+	if c.ShardQueueSize <= 0 {
+		c.ShardQueueSize = defaults.ShardQueueSize
 	}
 	return c
 }
@@ -209,15 +225,15 @@ func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metr
 		clientMsgRateLimit: delivery.ClientMsgRateLimit,
 		clientMsgRateBurst: delivery.ClientMsgRateBurst,
 		done:               make(chan struct{}),
-		clientMessage:      make(chan *ClientMessageWrapper),
-		subscribe:          make(chan *Subscription),
-		unsubscribe:        make(chan *Subscription),
+		clientMessage:      make(chan *ClientMessageWrapper, delivery.ShardQueueSize),
+		subscribe:          make(chan *Subscription, delivery.ShardQueueSize),
+		unsubscribe:        make(chan *Subscription, delivery.ShardQueueSize),
 		shards:             make([]*HubShard, numShards),
 		clients:            make(map[*Client]bool),
 	}
 
 	for i := 0; i < numShards; i++ {
-		h.shards[i] = NewHubShard(i, logger, ctx, metrics, webhook)
+		h.shards[i] = NewHubShard(i, appID, logger, ctx, metrics, webhook, delivery.ShardQueueSize)
 		go h.shards[i].Run()
 	}
 
@@ -357,6 +373,9 @@ func (h *Hub) publish(channel, event, data string) PublishStatus {
 		Data:              raw,
 		InternalCreatedAt: time.Now(),
 	}
+	if h.supportsLocalPublishAck() {
+		msg.LocalResult = make(chan PublishStatus, 1)
+	}
 
 	brokerStart := time.Now()
 	err := h.broker.Publish(h.ctx, msg)
@@ -364,10 +383,49 @@ func (h *Hub) publish(channel, event, data string) PublishStatus {
 		h.metrics.PublishDuration.WithLabelValues("broker").Observe(time.Since(brokerStart).Seconds())
 	}
 	if err != nil {
+		if errors.Is(err, ErrBrokerQueueFull) {
+			if h.metrics != nil {
+				h.metrics.BrokerDropped.WithLabelValues(h.AppID, "queue_full").Inc()
+				h.metrics.PublishFailures.WithLabelValues(h.AppID, "broker_queue_full").Inc()
+			}
+			return PublishBrokerQueueFull
+		}
 		h.logger.Error("Hub: broker publish failed", zap.Error(err))
+		if h.metrics != nil {
+			h.metrics.PublishFailures.WithLabelValues(h.AppID, "broker_failed").Inc()
+		}
 		return PublishBrokerFailed
 	}
+	if msg.LocalResult != nil {
+		select {
+		case status := <-msg.LocalResult:
+			if status != PublishOK && h.metrics != nil {
+				h.metrics.PublishFailures.WithLabelValues(h.AppID, publishStatusMetricReason(status)).Inc()
+			}
+			return status
+		case <-h.ctx.Done():
+			return PublishBrokerFailed
+		}
+	}
 	return PublishOK
+}
+
+func (h *Hub) supportsLocalPublishAck() bool {
+	acker, ok := h.broker.(interface{ SupportsLocalPublishAck() bool })
+	return ok && acker.SupportsLocalPublishAck()
+}
+
+func publishStatusMetricReason(status PublishStatus) string {
+	switch status {
+	case PublishBrokerQueueFull:
+		return "broker_queue_full"
+	case PublishShardQueueFull:
+		return "shard_queue_full"
+	case PublishBrokerFailed:
+		return "broker_failed"
+	default:
+		return "failed"
+	}
 }
 
 func (h *Hub) publishScope() string {
@@ -409,7 +467,11 @@ func (h *Hub) Run() {
 
 	for {
 		select {
-		case msg := <-brokerStream:
+		case msg, ok := <-brokerStream:
+			if !ok {
+				h.logger.Warn("Hub: broker stream closed")
+				return
+			}
 			if msg != nil {
 				if h.metrics != nil && h.metrics.HotPathEnabled {
 					now := time.Now()
@@ -423,7 +485,7 @@ func (h *Hub) Run() {
 					msg.BrokerReceivedAt = now
 				}
 				shard := h.getShard(msg.Channel)
-				shard.broadcast <- msg
+				shard.enqueueBroadcast(msg)
 			}
 
 		case sub := <-h.subscribe:

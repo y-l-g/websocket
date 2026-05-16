@@ -13,6 +13,7 @@ func TestWebsocketModuleDeliveryConfigDefaults(t *testing.T) {
 		AppID:      "pogo-app",
 		AuthPath:   "/pogo/auth",
 		AuthScript: "/tmp/auth.php",
+		AppSecret:  "test-secret",
 	}
 
 	if err := m.validateAndDefaults(); err != nil {
@@ -25,6 +26,12 @@ func TestWebsocketModuleDeliveryConfigDefaults(t *testing.T) {
 	if m.WriteBurstSize != DefaultWriteBurstSize {
 		t.Fatalf("WriteBurstSize = %d, want %d", m.WriteBurstSize, DefaultWriteBurstSize)
 	}
+	if m.BrokerQueueSize != DefaultBrokerQueueSize {
+		t.Fatalf("BrokerQueueSize = %d, want %d", m.BrokerQueueSize, DefaultBrokerQueueSize)
+	}
+	if m.ShardQueueSize != DefaultShardQueueSize {
+		t.Fatalf("ShardQueueSize = %d, want %d", m.ShardQueueSize, DefaultShardQueueSize)
+	}
 }
 
 func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
@@ -32,7 +39,10 @@ func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
 		app_id pogo-app
 		auth_path /pogo/auth
 		auth_script /tmp/auth.php
+		app_secret test-secret
 		outbound_queue_size 128
+		broker_queue_size 256
+		shard_queue_size 512
 		write_burst_size 8
 		enable_compression true
 	}`)
@@ -51,8 +61,51 @@ func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
 	if m.WriteBurstSize != 8 {
 		t.Fatalf("WriteBurstSize = %d, want 8", m.WriteBurstSize)
 	}
+	if m.BrokerQueueSize != 256 {
+		t.Fatalf("BrokerQueueSize = %d, want 256", m.BrokerQueueSize)
+	}
+	if m.ShardQueueSize != 512 {
+		t.Fatalf("ShardQueueSize = %d, want 512", m.ShardQueueSize)
+	}
 	if !m.EnableCompression {
 		t.Fatal("EnableCompression = false, want true")
+	}
+}
+
+func TestWebsocketModuleRequiresAppSecret(t *testing.T) {
+	m := WebsocketModule{
+		AppID:      "pogo-app",
+		AuthPath:   "/pogo/auth",
+		AuthScript: "/tmp/auth.php",
+	}
+
+	if err := m.validateAndDefaults(); err == nil {
+		t.Fatal("validateAndDefaults accepted missing app_secret")
+	}
+}
+
+func TestWebsocketModuleProtocolParsing(t *testing.T) {
+	for _, proto := range []string{"5", "7", "10"} {
+		if !isSupportedProtocol(proto) {
+			t.Fatalf("Expected protocol %s to be supported", proto)
+		}
+	}
+	for _, proto := range []string{"", "4", "abc"} {
+		if isSupportedProtocol(proto) {
+			t.Fatalf("Expected protocol %s to be rejected", proto)
+		}
+	}
+}
+
+func TestWebsocketModuleAppKeyFromPath(t *testing.T) {
+	if got := appKeyFromPath("/app/pogo-app"); got != "pogo-app" {
+		t.Fatalf("appKeyFromPath = %q, want pogo-app", got)
+	}
+	if got := appKeyFromPath("/app/pogo-app/extra"); got != "pogo-app" {
+		t.Fatalf("appKeyFromPath = %q, want pogo-app", got)
+	}
+	if got := appKeyFromPath("/other/pogo-app"); got != "" {
+		t.Fatalf("appKeyFromPath = %q, want empty", got)
 	}
 }
 
@@ -61,6 +114,7 @@ func TestWebsocketModuleParsesAllowedOrigins(t *testing.T) {
 		app_id pogo-app
 		auth_path /pogo/auth
 		auth_script /tmp/auth.php
+		app_secret test-secret
 		allowed_origins https://example.com https://app.example.com:8443
 	}`)
 
@@ -85,6 +139,7 @@ func TestWebsocketModuleCheckOrigin(t *testing.T) {
 		AppID:      "pogo-app",
 		AuthPath:   "/pogo/auth",
 		AuthScript: "/tmp/auth.php",
+		AppSecret:  "test-secret",
 		logger:     zap.NewNop(),
 	}
 	if err := m.validateAndDefaults(); err != nil {
@@ -127,6 +182,7 @@ func TestWebsocketModuleCheckOriginAllowlist(t *testing.T) {
 		AppID:          "pogo-app",
 		AuthPath:       "/pogo/auth",
 		AuthScript:     "/tmp/auth.php",
+		AppSecret:      "test-secret",
 		logger:         zap.NewNop(),
 		AllowedOrigins: []string{"https://app.example.com"},
 	}
@@ -163,6 +219,7 @@ func TestWebsocketModuleRejectsRemovedFanoutDirectives(t *testing.T) {
 				app_id pogo-app
 				auth_path /pogo/auth
 				auth_script /tmp/auth.php
+				app_secret test-secret
 				` + directive + `
 			}`)
 
@@ -176,8 +233,11 @@ func TestWebsocketModuleRejectsRemovedFanoutDirectives(t *testing.T) {
 
 func TestWebsocketModuleDeliveryConfigEnvOverrides(t *testing.T) {
 	t.Setenv("POGO_WS_OUTBOUND_QUEUE_SIZE", "512")
+	t.Setenv("POGO_WS_BROKER_QUEUE_SIZE", "1024")
+	t.Setenv("POGO_WS_SHARD_QUEUE_SIZE", "2048")
 	t.Setenv("POGO_WS_WRITE_BURST_SIZE", "8")
 	t.Setenv("POGO_WS_ENABLE_COMPRESSION", "true")
+	t.Setenv("POGO_WS_APP_SECRET", "test-secret")
 
 	m := WebsocketModule{
 		AppID:             "pogo-app",
@@ -196,6 +256,12 @@ func TestWebsocketModuleDeliveryConfigEnvOverrides(t *testing.T) {
 	}
 	if m.WriteBurstSize != 8 {
 		t.Fatalf("WriteBurstSize = %d, want 8", m.WriteBurstSize)
+	}
+	if m.BrokerQueueSize != 1024 {
+		t.Fatalf("BrokerQueueSize = %d, want 1024", m.BrokerQueueSize)
+	}
+	if m.ShardQueueSize != 2048 {
+		t.Fatalf("ShardQueueSize = %d, want 2048", m.ShardQueueSize)
 	}
 	if !m.EnableCompression {
 		t.Fatal("EnableCompression = false, want true")
@@ -217,6 +283,7 @@ func TestWebsocketModuleRejectsRemovedFanoutEnvOverrides(t *testing.T) {
 				AppID:      "pogo-app",
 				AuthPath:   "/pogo/auth",
 				AuthScript: "/tmp/auth.php",
+				AppSecret:  "test-secret",
 			}
 
 			if err := m.validateAndDefaults(); err == nil {

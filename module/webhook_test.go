@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"go.uber.org/zap"
 )
 
@@ -62,6 +64,33 @@ func TestWebhookManager_Notify(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Fatal("Timeout waiting for webhook")
 	}
+}
+
+func TestWebhookManagerDropsWhenQueueFull(t *testing.T) {
+	metrics := NewMetrics(prometheus.NewRegistry())
+	wm := &WebhookManager{
+		url:     "http://example.invalid",
+		logger:  zap.NewNop(),
+		metrics: metrics,
+		jobs:    make(chan WebhookEvent, 1),
+	}
+
+	wm.Notify("channel_occupied", "presence-test")
+	wm.Notify("channel_vacated", "presence-test")
+
+	if got := counterValue(t, metrics.WebhookDropped.WithLabelValues("queue_full")); got != 1 {
+		t.Fatalf("Expected one dropped webhook, got %d", got)
+	}
+}
+
+func counterValue(t *testing.T, metric prometheus.Counter) uint64 {
+	t.Helper()
+
+	var dtoMetric dto.Metric
+	if err := metric.Write(&dtoMetric); err != nil {
+		t.Fatalf("Metric write failed: %v", err)
+	}
+	return uint64(dtoMetric.GetCounter().GetValue())
 }
 
 func TestWebhookSignature(t *testing.T) {

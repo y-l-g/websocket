@@ -1,7 +1,11 @@
 package websocket
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/http"
 	"sync"
 	"testing"
@@ -16,6 +20,23 @@ type MockWorker struct {
 	ShouldFail bool
 	Calls      int
 	Delay      time.Duration
+}
+
+func TestAuthenticateUserValidatesAppIDAndSecret(t *testing.T) {
+	auth := NewWorkerAuthProvider(zap.NewNop(), NewMetrics(prometheus.NewRegistry()), nil, "test-app", "/auth", 1024, 100, "app-secret")
+	client := &Client{ID: "1.1"}
+	userData := `{"id":"123"}`
+	toSign := fmt.Sprintf("%s::user::%s", client.ID, userData)
+	mac := hmac.New(sha256.New, []byte("app-secret"))
+	mac.Write([]byte(toSign))
+	signature := hex.EncodeToString(mac.Sum(nil))
+
+	if res := auth.AuthenticateUser(client, "test-app:"+signature, userData); !res.Allowed {
+		t.Fatal("Expected user auth to be allowed")
+	}
+	if res := auth.AuthenticateUser(client, "other-app:"+signature, userData); res.Allowed {
+		t.Fatal("Expected user auth with wrong app id to be denied")
+	}
 }
 
 func (m *MockWorker) SendRequest(w http.ResponseWriter, r *http.Request) error {
@@ -61,7 +82,7 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 	metrics := NewMetrics(prometheus.NewRegistry())
 	worker := &MockWorker{}
 
-	auth := NewWorkerAuthProvider(logger, metrics, worker, "/auth", 1024, 100, "secret")
+	auth := NewWorkerAuthProvider(logger, metrics, worker, "test-app", "/auth", 1024, 100, "secret")
 
 	client := &Client{ID: "test", Headers: make(http.Header)}
 
@@ -99,7 +120,7 @@ func TestAuthConcurrencyLimit(t *testing.T) {
 		Delay: 100 * time.Millisecond,
 	}
 
-	auth := NewWorkerAuthProvider(logger, metrics, worker, "/auth", 1024, 2, "secret")
+	auth := NewWorkerAuthProvider(logger, metrics, worker, "test-app", "/auth", 1024, 2, "secret")
 	client := &Client{ID: "test", Headers: make(http.Header)}
 
 	var wg sync.WaitGroup

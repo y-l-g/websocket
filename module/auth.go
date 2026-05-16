@@ -66,6 +66,7 @@ type AuthProvider interface {
 }
 
 type WorkerAuthProvider struct {
+	appID       string
 	worker      RequestDispatcher
 	authPath    string
 	logger      *zap.Logger
@@ -76,7 +77,7 @@ type WorkerAuthProvider struct {
 	secret      string // App Secret for local verification
 }
 
-func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker RequestDispatcher, authPath string, maxAuthBody int, maxConcurrent int, secret string) *WorkerAuthProvider {
+func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker RequestDispatcher, appID string, authPath string, maxAuthBody int, maxConcurrent int, secret string) *WorkerAuthProvider {
 	st := gobreaker.Settings{
 		Name:        "FrankenPHP-Auth-Worker",
 		MaxRequests: 1,
@@ -92,6 +93,7 @@ func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker RequestD
 	}
 
 	return &WorkerAuthProvider{
+		appID:       appID,
 		logger:      logger,
 		metrics:     metrics,
 		worker:      worker,
@@ -118,7 +120,10 @@ func (ap *WorkerAuthProvider) AuthenticateUser(client *Client, authSig string, u
 	}
 
 	// We ignore the key part (parts[0]) here and validate using our configured secret.
-	// In a multi-tenant system, we would look up secret by key.
+	if parts[0] != ap.appID {
+		ap.logger.Warn("Auth: user signature app id mismatch", zap.String("id", client.ID))
+		return AuthResult{Allowed: false}
+	}
 	signature := parts[1]
 
 	// String to sign: socket_id + "::user::" + user_data

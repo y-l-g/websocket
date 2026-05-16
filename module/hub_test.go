@@ -242,6 +242,45 @@ func TestHubPublishStatusCodes(t *testing.T) {
 	}
 }
 
+func TestHubPublishStatusBrokerQueueFull(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	broker := NewMemoryBroker(logger, metrics, 1)
+	defer func() { _ = broker.Close() }()
+
+	if err := broker.Publish(ctx, &BroadcastMessage{Channel: "held", Event: "event"}); err != nil {
+		t.Fatalf("Seed publish failed: %v", err)
+	}
+
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, broker, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+	if got := hub.publish("channel", "event", `{}`); got != PublishBrokerQueueFull {
+		t.Fatalf("publish status = %d, want %d", got, PublishBrokerQueueFull)
+	}
+}
+
+func TestHubPublishStatusShardQueueFull(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	delivery := DefaultDeliveryConfig()
+	delivery.ShardQueueSize = 1
+	broker := NewMemoryBroker(logger, metrics, 2)
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, broker, 10000, 1, DefaultPingPeriod, delivery)
+	hub.shards[0] = NewHubShard(0, "test-app", logger, ctx, metrics, nil, 1)
+	hub.shards[0].broadcast <- &BroadcastMessage{Channel: "held", Event: "event"}
+
+	go hub.Run()
+
+	if got := hub.publish("channel", "event", `{}`); got != PublishShardQueueFull {
+		t.Fatalf("publish status = %d, want %d", got, PublishShardQueueFull)
+	}
+}
+
 func TestBroadcastMessageInternalTimestampsAreNotSerialized(t *testing.T) {
 	msg := &BroadcastMessage{
 		Channel:           "bench-channel",
@@ -277,7 +316,7 @@ func TestHubAndShardDelayMetricsRecordNonNegativeDurations(t *testing.T) {
 	defer cancel()
 
 	metrics := NewMetrics(prometheus.NewRegistry())
-	shard := NewHubShard(0, logger, ctx, metrics, nil)
+	shard := NewHubShard(0, "test-app", logger, ctx, metrics, nil, DefaultShardQueueSize)
 	go shard.Run()
 
 	msg := &BroadcastMessage{

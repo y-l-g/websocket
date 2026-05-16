@@ -105,8 +105,22 @@ func (c *Client) Send(msg any) {
 	case c.send <- msg:
 	default:
 		if c.hub != nil && c.hub.metrics != nil {
-			c.hub.metrics.DroppedMessages.Inc()
+			c.hub.metrics.DroppedMessages.WithLabelValues(c.hub.AppID, "queue_full", outboundMetricKind(msg)).Inc()
 		}
+	}
+}
+
+func outboundMetricKind(msg any) string {
+	if queued, ok := msg.(queuedOutboundMessage); ok {
+		msg = queued.payload
+	}
+	switch msg.(type) {
+	case *websocket.PreparedMessage:
+		return "prepared"
+	case []byte:
+		return "bytes"
+	default:
+		return "unknown"
 	}
 }
 

@@ -7,6 +7,7 @@ use Illuminate\Broadcasting\Broadcasters\UsePusherChannelConventions;
 use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Support\Arrayable;
+use InvalidArgumentException;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
 
 class Broadcaster extends BaseBroadcaster
@@ -21,14 +22,16 @@ class Broadcaster extends BaseBroadcaster
      */
     public function __construct(array $config = [])
     {
-        // specific checks are replaced by safe casting which satisfies PHPStan
-        $this->appId = isset($config['app_id']) && is_string($config['app_id'])
-            ? $config['app_id']
-            : 'pogo-app';
+        if (!isset($config['app_id']) || !is_string($config['app_id']) || $config['app_id'] === '') {
+            throw new InvalidArgumentException('Pogo WebSocket requires a non-empty app_id.');
+        }
 
-        $this->secret = isset($config['secret']) && is_string($config['secret'])
-            ? $config['secret']
-            : 'super-secret-key';
+        if (!isset($config['secret']) || !is_string($config['secret']) || $config['secret'] === '') {
+            throw new InvalidArgumentException('Pogo WebSocket requires a non-empty secret.');
+        }
+
+        $this->appId = $config['app_id'];
+        $this->secret = $config['secret'];
     }
 
     /**
@@ -223,6 +226,8 @@ class Broadcaster extends BaseBroadcaster
             5 => 'invalid_payload_json',
             6 => 'broker_publish_failed',
             7 => 'invalid_channels_json',
+            8 => 'broker_queue_full',
+            9 => 'shard_queue_full',
             default => 'unknown',
         };
     }

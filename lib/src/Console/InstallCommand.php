@@ -120,8 +120,8 @@ class InstallCommand extends Command
         $driverConfig = <<<'CONFIG'
                     'pogo' => [
                         'driver' => 'pogo',
-                        'app_id' => env('WS_APP_ID', 'pogo-app'),
-                        'secret' => env('WS_APP_SECRET', 'super-secret-key'),
+                        'app_id' => env('WS_APP_ID'),
+                        'secret' => env('WS_APP_SECRET'),
                     ],
 
             CONFIG;
@@ -146,7 +146,8 @@ class InstallCommand extends Command
         Env::writeVariables([
             'BROADCAST_CONNECTION' => 'pogo',
             'WS_APP_ID' => 'pogo-app',
-            'WS_APP_SECRET' => 'super-secret-key',
+            'WS_APP_SECRET' => bin2hex(random_bytes(32)),
+            'VITE_POGO_APP_KEY' => 'pogo-app',
             'VITE_POGO_PORT' => '80',
             'VITE_POGO_WSS_PORT' => '443',
         ], $envPath);
@@ -172,7 +173,7 @@ class InstallCommand extends Command
 
                 window.Echo = new Echo({
                     broadcaster: 'pusher',
-                    key: 'pogo-key',
+                    key: import.meta.env.VITE_POGO_APP_KEY || 'pogo-app',
                     cluster: 'mt1',
                     wsHost: import.meta.env.VITE_POGO_HOST || window.location.hostname,
                     wsPort: import.meta.env.VITE_POGO_PORT || 80,

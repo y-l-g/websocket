@@ -10,6 +10,8 @@ import (
 	"go.uber.org/zap"
 )
 
+var ErrBrokerQueueFull = errors.New("broker queue full")
+
 // Broker handles distributing messages to the Hub.
 type Broker interface {
 	Publish(ctx context.Context, msg *BroadcastMessage) error
@@ -25,10 +27,14 @@ type MemoryBroker struct {
 	once   sync.Once
 }
 
-func NewMemoryBroker(_ *zap.Logger, _ *Metrics) *MemoryBroker {
+func NewMemoryBroker(_ *zap.Logger, _ *Metrics, queueSize ...int) *MemoryBroker {
 	ctx, cancel := context.WithCancel(context.Background())
+	size := DefaultBrokerQueueSize
+	if len(queueSize) > 0 && queueSize[0] > 0 {
+		size = queueSize[0]
+	}
 	return &MemoryBroker{
-		bus:    make(chan *BroadcastMessage),
+		bus:    make(chan *BroadcastMessage, size),
 		ctx:    ctx,
 		cancel: cancel,
 	}
@@ -36,13 +42,27 @@ func NewMemoryBroker(_ *zap.Logger, _ *Metrics) *MemoryBroker {
 
 func (b *MemoryBroker) Publish(ctx context.Context, msg *BroadcastMessage) error {
 	select {
+	case <-b.ctx.Done():
+		return errors.New("broker closed")
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	select {
 	case b.bus <- msg:
 		return nil
 	case <-b.ctx.Done():
 		return errors.New("broker closed")
 	case <-ctx.Done():
 		return ctx.Err()
+	default:
+		return ErrBrokerQueueFull
 	}
+}
+
+func (b *MemoryBroker) SupportsLocalPublishAck() bool {
+	return true
 }
 
 func (b *MemoryBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, error) {
