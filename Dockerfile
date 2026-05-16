@@ -1,4 +1,4 @@
-FROM dunglas/frankenphp:1.12.2-builder-php8.5.6-trixie AS builder
+FROM dunglas/frankenphp:1.12.3-builder-php8.5.6-trixie AS builder
 
 COPY --from=caddy:builder /usr/bin/xcaddy /usr/bin/xcaddy
 
