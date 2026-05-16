@@ -1,6 +1,7 @@
 package integration
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"net"
@@ -119,6 +120,7 @@ func startNode(t *testing.T, binPath, rootDir, redisAddr, name string) *TestNode
     route /app/* {
         pogo_websocket {
             app_id          test-app
+            app_secret      super-secret-key
             auth_path       /auth
             auth_script     tests/integration/fixtures/worker.php
             num_workers     1
@@ -150,6 +152,9 @@ func startNode(t *testing.T, binPath, rootDir, redisAddr, name string) *TestNode
 	ctx, cancel := context.WithCancel(context.Background())
 	cmd := exec.CommandContext(ctx, binPath, "run", "--config", tmpCaddyfile.Name())
 	cmd.Dir = rootDir
+	var output bytes.Buffer
+	cmd.Stdout = &output
+	cmd.Stderr = &output
 
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("[%s] Start failed: %v", name, err)
@@ -169,7 +174,8 @@ func startNode(t *testing.T, binPath, rootDir, redisAddr, name string) *TestNode
 
 	if !ready {
 		cancel()
-		t.Fatalf("[%s] Node failed to start on port %d", name, port)
+		_ = cmd.Wait()
+		t.Fatalf("[%s] Node failed to start on port %d\n%s", name, port, output.String())
 	}
 
 	return &TestNode{
