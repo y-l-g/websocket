@@ -3,6 +3,7 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"hash/fnv"
 	"sync"
 	"sync/atomic"
@@ -23,24 +24,67 @@ var (
 	hubRegistry sync.Map
 )
 
+type PublishStatus int
+
+const (
+	PublishOK PublishStatus = iota
+	PublishHubMissing
+	PublishChannelTooLong
+	PublishEventTooLong
+	PublishPayloadTooLarge
+	PublishInvalidPayloadJSON
+	PublishBrokerFailed
+	PublishInvalidChannelsJSON
+)
+
+type hubSet struct {
+	mu   sync.RWMutex
+	hubs map[*Hub]struct{}
+}
+
 func RegisterHub(appID string, h *Hub) error {
-	if _, loaded := hubRegistry.Swap(appID, h); loaded {
-		h.logger.Warn("Hub: AppID registry overwritten (likely config reload)", zap.String("app_id", appID))
+	actual, loaded := hubRegistry.LoadOrStore(appID, &hubSet{hubs: make(map[*Hub]struct{})})
+	set := actual.(*hubSet)
+
+	set.mu.Lock()
+	set.hubs[h] = struct{}{}
+	count := len(set.hubs)
+	set.mu.Unlock()
+
+	if loaded {
+		h.logger.Info("Hub: AppID registry has multiple active hubs", zap.String("app_id", appID), zap.Int("active_hubs", count))
 	}
 	return nil
 }
 
 func UnregisterHub(appID string, h *Hub) {
 	if val, ok := hubRegistry.Load(appID); ok {
-		if val.(*Hub) == h {
-			hubRegistry.Delete(appID)
-		}
+		set := val.(*hubSet)
+		set.mu.Lock()
+		delete(set.hubs, h)
+		set.mu.Unlock()
 	}
 }
 
 func GetHub(appID string) *Hub {
+	hubs := GetHubs(appID)
+	if len(hubs) == 0 {
+		return nil
+	}
+	return hubs[0]
+}
+
+func GetHubs(appID string) []*Hub {
 	if val, ok := hubRegistry.Load(appID); ok {
-		return val.(*Hub)
+		set := val.(*hubSet)
+		set.mu.RLock()
+		defer set.mu.RUnlock()
+
+		hubs := make([]*Hub, 0, len(set.hubs))
+		for hub := range set.hubs {
+			hubs = append(hubs, hub)
+		}
+		return hubs
 	}
 	return nil
 }
@@ -260,10 +304,10 @@ func (h *Hub) Authorize(client *Client, channel string) AuthResult {
 }
 
 func (h *Hub) Publish(channel, event, data string) bool {
-	return h.publish(channel, event, data)
+	return h.publish(channel, event, data) == PublishOK
 }
 
-func (h *Hub) publish(channel, event, data string) bool {
+func (h *Hub) publish(channel, event, data string) PublishStatus {
 	totalStart := time.Now()
 	validateStart := totalStart
 	hotPath := h.metrics != nil && h.metrics.HotPathEnabled
@@ -273,7 +317,7 @@ func (h *Hub) publish(channel, event, data string) bool {
 			zap.String("channel", channel),
 			zap.Int("length", len(channel)),
 			zap.Int("limit", protocol.MaxChannelLength))
-		return false
+		return PublishChannelTooLong
 	}
 
 	if len(event) > protocol.MaxEventLength {
@@ -281,14 +325,19 @@ func (h *Hub) publish(channel, event, data string) bool {
 			zap.String("event", event),
 			zap.Int("length", len(event)),
 			zap.Int("limit", protocol.MaxEventLength))
-		return false
+		return PublishEventTooLong
 	}
 
 	if len(data) > protocol.MaxDataSize {
 		h.logger.Error("Hub: publish failed, data payload too large",
 			zap.Int("length", len(data)),
 			zap.Int("limit", protocol.MaxDataSize))
-		return false
+		return PublishPayloadTooLarge
+	}
+
+	if !json.Valid([]byte(data)) {
+		h.logger.Error("Hub: publish failed, data payload is not valid JSON")
+		return PublishInvalidPayloadJSON
 	}
 
 	if hotPath {
@@ -316,9 +365,37 @@ func (h *Hub) publish(channel, event, data string) bool {
 	}
 	if err != nil {
 		h.logger.Error("Hub: broker publish failed", zap.Error(err))
-		return false
+		return PublishBrokerFailed
 	}
-	return true
+	return PublishOK
+}
+
+func (h *Hub) publishScope() string {
+	if scoped, ok := h.broker.(interface{ PublishScope() string }); ok {
+		return scoped.PublishScope()
+	}
+	return fmt.Sprintf("hub:%p", h)
+}
+
+func publishToActiveHubs(hubs []*Hub, channel, event, data string) PublishStatus {
+	if len(hubs) == 0 {
+		return PublishHubMissing
+	}
+
+	publishedScopes := make(map[string]struct{}, len(hubs))
+	status := PublishOK
+	for _, hub := range hubs {
+		scope := hub.publishScope()
+		if _, seen := publishedScopes[scope]; seen {
+			continue
+		}
+		publishedScopes[scope] = struct{}{}
+
+		if result := hub.publish(channel, event, data); result != PublishOK && status == PublishOK {
+			status = result
+		}
+	}
+	return status
 }
 
 func (h *Hub) Run() {

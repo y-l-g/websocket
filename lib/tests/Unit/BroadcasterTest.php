@@ -6,6 +6,7 @@ use Mockery;
 use PHPUnit\Framework\TestCase;
 use Pogo\WebSocket\Broadcaster;
 use Illuminate\Http\Request;
+use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Support\Arrayable;
 
@@ -94,12 +95,12 @@ class BroadcasterTest extends TestCase
         $this->assertEquals($userDataJson, $response['user_data']);
     }
 
-    public function testBroadcastCallsGlobalFunction()
+    public function testBroadcastThrowsWhenExtensionMissing()
     {
-        // Just verify no crash
         $broadcaster = new Broadcaster(['app_id' => 'test-app']);
+        $this->expectException(BroadcastException::class);
+        $this->expectExceptionMessage('pogo_extension_not_loaded');
         $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
-        $this->assertTrue(true);
     }
 
     public function testNonBenchmarkAndFailedPayloadEncodingKeepExistingBehavior()
@@ -119,5 +120,23 @@ class BroadcasterTest extends TestCase
         $this->assertSame(['foo' => 'bar'], json_decode((string) $payloadJson, true));
 
         $this->assertFalse($broadcaster->encodeForTest(['invalid' => INF]));
+    }
+
+    public function testFailedPayloadEncodingThrowsBroadcastException()
+    {
+        $broadcaster = new class (['app_id' => 'test-app']) extends Broadcaster {
+            /**
+             * @param array<mixed> $payload
+             * @return string|false
+             */
+            protected function encodeBroadcastPayload(array $payload)
+            {
+                return false;
+            }
+        };
+
+        $this->expectException(BroadcastException::class);
+        $this->expectExceptionMessage('payload_encode_failed');
+        $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
     }
 }

@@ -9,8 +9,8 @@ $data = $_GET['data'] ?? '{"hello":"world"}';
 
 if (function_exists('pogo_websocket_publish')) {
     // Cast data to string as the extension expects strings
-    $success = pogo_websocket_publish($appId, $channel, $event, (string) $data);
-    echo json_encode(['success' => $success]);
+    $status = pogo_websocket_publish($appId, $channel, $event, (string) $data);
+    echo json_encode(['success' => $status === 0, 'status' => $status]);
 } else {
     http_response_code(500);
     echo json_encode(['error' => 'Extension pogo_websocket_publish not loaded']);

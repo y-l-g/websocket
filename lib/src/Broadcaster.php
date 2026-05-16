@@ -4,6 +4,7 @@ namespace Pogo\WebSocket;
 
 use Illuminate\Broadcasting\Broadcasters\Broadcaster as BaseBroadcaster;
 use Illuminate\Broadcasting\Broadcasters\UsePusherChannelConventions;
+use Illuminate\Broadcasting\BroadcastException;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Contracts\Support\Arrayable;
 use Symfony\Component\HttpKernel\Exception\AccessDeniedHttpException;
@@ -149,8 +150,7 @@ class Broadcaster extends BaseBroadcaster
 
         $payloadJson = $this->encodeBroadcastPayload($payload);
         if ($payloadJson === false) {
-            $this->logBroadcastError('payload_encode_failed', $channels, $event);
-            return;
+            $this->throwBroadcastError('payload_encode_failed', $channels, (string) $event);
         }
 
         $eventStr = (string) $event;
@@ -168,27 +168,26 @@ class Broadcaster extends BaseBroadcaster
                 $channelsJson = json_encode($validChannels);
                 if ($channelsJson !== false) {
                     $result = pogo_websocket_broadcast_multi($this->appId, $channelsJson, $eventStr, $payloadJson);
-                    if ($result) {
+                    if ($result === 0) {
                         return;
                     }
-                    $this->logBroadcastError('broadcast_multi_failed', $validChannels, $eventStr);
+                    $this->throwBroadcastError('broadcast_multi_failed', $validChannels, $eventStr, 'pogo_websocket_broadcast_multi', $result);
                 } else {
-                    $this->logBroadcastError('channels_json_encode_failed', $channels, $eventStr);
+                    $this->throwBroadcastError('channels_json_encode_failed', $channels, $eventStr);
                 }
             }
         }
 
         if (!function_exists('pogo_websocket_publish')) {
-            $this->logBroadcastError('pogo_extension_not_loaded', $channels, $eventStr);
-            return;
+            $this->throwBroadcastError('pogo_extension_not_loaded', $channels, $eventStr);
         }
 
         foreach ($channels as $channel) {
             $channelStr = (string) $channel;
             if ($channelStr !== '' && $eventStr !== '') {
                 $result = pogo_websocket_publish($this->appId, $channelStr, $eventStr, $payloadJson);
-                if (!$result) {
-                    $this->logBroadcastError('publish_failed', [$channelStr], $eventStr);
+                if ($result !== 0) {
+                    $this->throwBroadcastError('publish_failed', [$channelStr], $eventStr, 'pogo_websocket_publish', $result);
                 }
             }
         }
@@ -197,14 +196,35 @@ class Broadcaster extends BaseBroadcaster
     /**
      * @param  array<string>  $channels
      */
-    protected function logBroadcastError(string $reason, array $channels, string $event): void
+    protected function throwBroadcastError(string $reason, array $channels, string $event, ?string $function = null, ?int $status = null): never
     {
-        error_log(sprintf(
-            '[Pogo WebSocket] Broadcast failed: reason=%s event=%s channels=%s',
+        $nativeStatus = $status === null ? '' : sprintf(' status=%d(%s)', $status, $this->nativeStatusReason($status));
+        $nativeFunction = $function === null ? '' : sprintf(' function=%s', $function);
+
+        throw new BroadcastException(sprintf(
+            '[Pogo WebSocket] Broadcast failed: reason=%s app_id=%s event=%s channels=%s%s%s',
             $reason,
+            $this->appId,
             $event,
-            implode(',', $channels)
+            implode(',', $channels),
+            $nativeFunction,
+            $nativeStatus
         ));
+    }
+
+    protected function nativeStatusReason(int $status): string
+    {
+        return match ($status) {
+            0 => 'success',
+            1 => 'hub_missing',
+            2 => 'channel_too_long',
+            3 => 'event_too_long',
+            4 => 'payload_too_large',
+            5 => 'invalid_payload_json',
+            6 => 'broker_publish_failed',
+            7 => 'invalid_channels_json',
+            default => 'unknown',
+        };
     }
 
     /**

@@ -16,6 +16,7 @@ const RedisChannelName = "frankenphp:cluster:broadcast"
 type RedisBroker struct {
 	client *redis.Client
 	logger *zap.Logger
+	scope  string
 }
 
 func NewRedisBroker(logger *zap.Logger, addr, password string, db int, useTLS bool) *RedisBroker {
@@ -40,6 +41,7 @@ func NewRedisBroker(logger *zap.Logger, addr, password string, db int, useTLS bo
 	return &RedisBroker{
 		client: rdb,
 		logger: logger,
+		scope:  fmt.Sprintf("redis:%s:%d:%s", addr, db, RedisChannelName),
 	}
 }
 
@@ -150,4 +152,8 @@ func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, 
 
 func (r *RedisBroker) Close() error {
 	return r.client.Close()
+}
+
+func (r *RedisBroker) PublishScope() string {
+	return r.scope
 }

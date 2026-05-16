@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"sync"
 
 	"go.uber.org/zap"
@@ -53,6 +54,10 @@ func (b *MemoryBroker) Close() error {
 		b.cancel()
 	})
 	return nil
+}
+
+func (b *MemoryBroker) PublishScope() string {
+	return fmt.Sprintf("memory:%p", b)
 }
 
 // Helper for JSON serialization used by RedisBroker later

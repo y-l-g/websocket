@@ -37,7 +37,7 @@ PHP_FUNCTION(pogo_websocket_publish)
         Z_PARAM_STR(data)
     ZEND_PARSE_PARAMETERS_END();
     int result = pogo_websocket_publish(appId, channel, event, data);
-    RETURN_BOOL(result);
+    RETURN_LONG(result);
 }
 
 PHP_FUNCTION(pogo_websocket_broadcast_multi)
@@ -53,6 +53,5 @@ PHP_FUNCTION(pogo_websocket_broadcast_multi)
         Z_PARAM_STR(data)
     ZEND_PARSE_PARAMETERS_END();
     int result = pogo_websocket_broadcast_multi(appId, channels, event, data);
-    RETURN_BOOL(result);
+    RETURN_LONG(result);
 }
-

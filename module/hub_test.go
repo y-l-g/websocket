@@ -3,23 +3,31 @@ package websocket
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	dto "github.com/prometheus/client_model/go"
+	"github.com/y-l-g/websocket/module/internal/protocol"
 	"go.uber.org/zap"
 )
 
 type MockBroker struct {
 	published chan *BroadcastMessage
 	delay     time.Duration
+	err       error
+	scope     string
 }
 
 func (m *MockBroker) Publish(ctx context.Context, msg *BroadcastMessage) error {
 	if m.delay > 0 {
 		time.Sleep(m.delay)
+	}
+	if m.err != nil {
+		return m.err
 	}
 	if m.published != nil {
 		m.published <- msg
@@ -30,6 +38,12 @@ func (m *MockBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, e
 	return make(chan *BroadcastMessage), nil
 }
 func (m *MockBroker) Close() error { return nil }
+func (m *MockBroker) PublishScope() string {
+	if m.scope != "" {
+		return m.scope
+	}
+	return fmt.Sprintf("mock:%p", m)
+}
 
 func TestHubSharding(t *testing.T) {
 	logger := zap.NewNop()
@@ -108,6 +122,123 @@ func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 	brokerSum := metricHistogramSum(t, metrics.PublishDuration.WithLabelValues("broker"))
 	if totalSum < brokerSum {
 		t.Fatalf("Expected publish total duration %.9f to be >= broker duration %.9f", totalSum, brokerSum)
+	}
+}
+
+func TestHubRegistryKeepsMultipleActiveHubsPerApp(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	hub1 := NewHub("reload-app", logger, ctx, metrics, nil, nil, &MockBroker{}, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+	hub2 := NewHub("reload-app", logger, ctx, metrics, nil, nil, &MockBroker{}, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+	t.Cleanup(func() {
+		UnregisterHub("reload-app", hub1)
+		UnregisterHub("reload-app", hub2)
+	})
+
+	if err := RegisterHub("reload-app", hub1); err != nil {
+		t.Fatalf("RegisterHub hub1 failed: %v", err)
+	}
+	if err := RegisterHub("reload-app", hub2); err != nil {
+		t.Fatalf("RegisterHub hub2 failed: %v", err)
+	}
+
+	hubs := GetHubs("reload-app")
+	if len(hubs) != 2 {
+		t.Fatalf("GetHubs returned %d hubs, want 2", len(hubs))
+	}
+
+	UnregisterHub("reload-app", hub1)
+	hubs = GetHubs("reload-app")
+	if len(hubs) != 1 || hubs[0] != hub2 {
+		t.Fatalf("UnregisterHub removed wrong hub; got %#v", hubs)
+	}
+}
+
+func TestPublishToActiveHubsPublishesAllDistinctScopes(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	broker1 := &MockBroker{published: make(chan *BroadcastMessage, 1), scope: "scope-1"}
+	broker2 := &MockBroker{published: make(chan *BroadcastMessage, 1), scope: "scope-2"}
+	hub1 := NewHub("reload-app", logger, ctx, metrics, nil, nil, broker1, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+	hub2 := NewHub("reload-app", logger, ctx, metrics, nil, nil, broker2, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+
+	if status := publishToActiveHubs([]*Hub{hub1, hub2}, "test-channel", "test-event", `{"ok":true}`); status != PublishOK {
+		t.Fatalf("publishToActiveHubs status = %d, want %d", status, PublishOK)
+	}
+
+	for name, ch := range map[string]<-chan *BroadcastMessage{"broker1": broker1.published, "broker2": broker2.published} {
+		select {
+		case msg := <-ch:
+			if msg.Channel != "test-channel" {
+				t.Fatalf("%s received channel %q", name, msg.Channel)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("Timed out waiting for %s publish", name)
+		}
+	}
+}
+
+func TestPublishToActiveHubsDeduplicatesSharedScopes(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	broker1 := &MockBroker{published: make(chan *BroadcastMessage, 1), scope: "redis-scope"}
+	broker2 := &MockBroker{published: make(chan *BroadcastMessage, 1), scope: "redis-scope"}
+	hub1 := NewHub("reload-app", logger, ctx, metrics, nil, nil, broker1, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+	hub2 := NewHub("reload-app", logger, ctx, metrics, nil, nil, broker2, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+
+	if status := publishToActiveHubs([]*Hub{hub1, hub2}, "test-channel", "test-event", `{"ok":true}`); status != PublishOK {
+		t.Fatalf("publishToActiveHubs status = %d, want %d", status, PublishOK)
+	}
+
+	select {
+	case <-broker1.published:
+	case <-time.After(time.Second):
+		t.Fatal("Timed out waiting for first scoped publish")
+	}
+	select {
+	case <-broker2.published:
+		t.Fatal("Expected shared scope to be published once")
+	default:
+	}
+}
+
+func TestHubPublishStatusCodes(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, &MockBroker{err: errors.New("boom")}, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+
+	tests := []struct {
+		name    string
+		channel string
+		event   string
+		data    string
+		want    PublishStatus
+	}{
+		{name: "channel too long", channel: strings.Repeat("c", protocol.MaxChannelLength+1), event: "event", data: `{}`, want: PublishChannelTooLong},
+		{name: "event too long", channel: "channel", event: strings.Repeat("e", protocol.MaxEventLength+1), data: `{}`, want: PublishEventTooLong},
+		{name: "payload too large", channel: "channel", event: "event", data: `"` + strings.Repeat("d", protocol.MaxDataSize+1) + `"`, want: PublishPayloadTooLarge},
+		{name: "invalid json", channel: "channel", event: "event", data: `{`, want: PublishInvalidPayloadJSON},
+		{name: "broker failed", channel: "channel", event: "event", data: `{}`, want: PublishBrokerFailed},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := hub.publish(tt.channel, tt.event, tt.data); got != tt.want {
+				t.Fatalf("publish status = %d, want %d", got, tt.want)
+			}
+		})
 	}
 }
 

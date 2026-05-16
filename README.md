@@ -7,7 +7,7 @@ This project is highly experimental, use with caution.
 **The Native, High-Performance Real-Time Solution for PHP.**
 
 - A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
-- CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_broadcast_multi` allow PHP to broadcast messages instantly via shared memory.
+- CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_broadcast_multi` allow PHP to broadcast messages instantly and return native status codes for precise failures.
 - The Caddy module uses FrankenPHP's `ExtensionWorker` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
 
 ---
@@ -110,6 +110,7 @@ Configure the module within your `Caddyfile` at the root of your laravel project
             auth_path       /pogo/auth
             auth_script     public/websocket-worker.php
             webhook_secret  super-secret-key
+            allowed_origins https://app.example.com https://admin.example.com
 
             handshake_rate  100         # New connection attempts per second (Default: 100)
             handshake_burst 50          # Burst allowance (Default: 50)
@@ -140,6 +141,16 @@ Configure the module within your `Caddyfile` at the root of your laravel project
     }
 }
 ```
+
+By default, WebSocket upgrades accept requests without an `Origin` header and browser
+requests whose `Origin` host matches the request host. Configure `allowed_origins`
+when your frontend connects from a different origin; entries must be exact
+`http://` or `https://` origins, including the port when one is used.
+
+Native publish functions return `0` on success. Nonzero status codes indicate:
+`1` hub missing, `2` channel too long, `3` event too long, `4` payload too large,
+`5` invalid payload JSON, `6` broker publish failed, and `7` invalid multi-channel
+JSON. The Laravel broadcaster turns these failures into `BroadcastException`.
 
 Fill your .env
 

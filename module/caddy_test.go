@@ -1,9 +1,11 @@
 package websocket
 
 import (
+	"net/http"
 	"testing"
 
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
+	"go.uber.org/zap"
 )
 
 func TestWebsocketModuleDeliveryConfigDefaults(t *testing.T) {
@@ -51,6 +53,100 @@ func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
 	}
 	if !m.EnableCompression {
 		t.Fatal("EnableCompression = false, want true")
+	}
+}
+
+func TestWebsocketModuleParsesAllowedOrigins(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`pogo_websocket {
+		app_id pogo-app
+		auth_path /pogo/auth
+		auth_script /tmp/auth.php
+		allowed_origins https://example.com https://app.example.com:8443
+	}`)
+
+	var m WebsocketModule
+	if err := m.UnmarshalCaddyfile(d); err != nil {
+		t.Fatalf("UnmarshalCaddyfile returned error: %v", err)
+	}
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+
+	if _, ok := m.allowedOriginSet["https://example.com"]; !ok {
+		t.Fatal("Expected https://example.com in allowed origin set")
+	}
+	if _, ok := m.allowedOriginSet["https://app.example.com:8443"]; !ok {
+		t.Fatal("Expected https://app.example.com:8443 in allowed origin set")
+	}
+}
+
+func TestWebsocketModuleCheckOrigin(t *testing.T) {
+	m := WebsocketModule{
+		AppID:      "pogo-app",
+		AuthPath:   "/pogo/auth",
+		AuthScript: "/tmp/auth.php",
+		logger:     zap.NewNop(),
+	}
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+
+	tests := []struct {
+		name   string
+		host   string
+		origin string
+		want   bool
+	}{
+		{name: "missing origin", host: "example.com", want: true},
+		{name: "same host", host: "example.com", origin: "https://example.com", want: true},
+		{name: "same host with port", host: "example.com:8443", origin: "https://example.com:8443", want: true},
+		{name: "cross host", host: "example.com", origin: "https://evil.test", want: false},
+		{name: "malformed", host: "example.com", origin: "::::", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, "https://"+tt.host+"/app/test", nil)
+			if err != nil {
+				t.Fatalf("NewRequest failed: %v", err)
+			}
+			req.Host = tt.host
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+
+			if got := m.checkOrigin(req); got != tt.want {
+				t.Fatalf("checkOrigin = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestWebsocketModuleCheckOriginAllowlist(t *testing.T) {
+	m := WebsocketModule{
+		AppID:          "pogo-app",
+		AuthPath:       "/pogo/auth",
+		AuthScript:     "/tmp/auth.php",
+		logger:         zap.NewNop(),
+		AllowedOrigins: []string{"https://app.example.com"},
+	}
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://api.example.com/app/test", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Host = "api.example.com"
+	req.Header.Set("Origin", "https://app.example.com")
+	if !m.checkOrigin(req) {
+		t.Fatal("Expected configured origin to be accepted")
+	}
+
+	req.Header.Set("Origin", "https://evil.test")
+	if m.checkOrigin(req) {
+		t.Fatal("Expected unconfigured origin to be rejected")
 	}
 }
 

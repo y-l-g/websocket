@@ -4,9 +4,11 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/caddyserver/caddy/v2"
@@ -26,27 +28,28 @@ func init() {
 }
 
 type WebsocketModule struct {
-	AppID              string  `json:"app_id,omitempty"`
-	AuthPath           string  `json:"auth_path,omitempty"`
-	AuthScript         string  `json:"auth_script,omitempty"`
-	NumWorkers         int     `json:"num_workers,omitempty"`
-	MaxConnections     int     `json:"max_connections,omitempty"`
-	MaxAuthBody        int     `json:"max_auth_body,omitempty"`
-	MaxConcurrentAuth  int     `json:"max_concurrent_auth,omitempty"`
-	NumShards          int     `json:"num_shards,omitempty"`
-	HandshakeRate      float64 `json:"handshake_rate,omitempty"`  // New
-	HandshakeBurst     int     `json:"handshake_burst,omitempty"` // New
-	OutboundQueueSize  int     `json:"outbound_queue_size,omitempty"`
-	WriteBurstSize     int     `json:"write_burst_size,omitempty"`
-	ClientMsgRateLimit float64 `json:"client_msg_rate_limit,omitempty"`
-	ClientMsgRateBurst int     `json:"client_msg_rate_burst,omitempty"`
-	EnableCompression  bool    `json:"enable_compression,omitempty"`
-	WebhookURL         string  `json:"webhook_url,omitempty"`
-	WebhookSecret      string  `json:"webhook_secret,omitempty"`
-	RedisHost          string  `json:"redis_host,omitempty"`
-	RedisPassword      string  `json:"redis_password,omitempty"`
-	RedisDB            int     `json:"redis_db,omitempty"`
-	RedisTLS           bool    `json:"redis_tls,omitempty"`
+	AppID              string   `json:"app_id,omitempty"`
+	AuthPath           string   `json:"auth_path,omitempty"`
+	AuthScript         string   `json:"auth_script,omitempty"`
+	NumWorkers         int      `json:"num_workers,omitempty"`
+	MaxConnections     int      `json:"max_connections,omitempty"`
+	MaxAuthBody        int      `json:"max_auth_body,omitempty"`
+	MaxConcurrentAuth  int      `json:"max_concurrent_auth,omitempty"`
+	NumShards          int      `json:"num_shards,omitempty"`
+	HandshakeRate      float64  `json:"handshake_rate,omitempty"`  // New
+	HandshakeBurst     int      `json:"handshake_burst,omitempty"` // New
+	OutboundQueueSize  int      `json:"outbound_queue_size,omitempty"`
+	WriteBurstSize     int      `json:"write_burst_size,omitempty"`
+	ClientMsgRateLimit float64  `json:"client_msg_rate_limit,omitempty"`
+	ClientMsgRateBurst int      `json:"client_msg_rate_burst,omitempty"`
+	EnableCompression  bool     `json:"enable_compression,omitempty"`
+	AllowedOrigins     []string `json:"allowed_origins,omitempty"`
+	WebhookURL         string   `json:"webhook_url,omitempty"`
+	WebhookSecret      string   `json:"webhook_secret,omitempty"`
+	RedisHost          string   `json:"redis_host,omitempty"`
+	RedisPassword      string   `json:"redis_password,omitempty"`
+	RedisDB            int      `json:"redis_db,omitempty"`
+	RedisTLS           bool     `json:"redis_tls,omitempty"`
 
 	// Timeouts
 	PingPeriod string `json:"ping_period,omitempty"`
@@ -58,14 +61,15 @@ type WebsocketModule struct {
 	writeWaitDuration  time.Duration
 	pongWaitDuration   time.Duration
 
-	hub          *Hub
-	metrics      *Metrics
-	workerHandle frankenphp.Workers
-	limiter      *rate.Limiter // Rate Limiter
-	logger       *zap.Logger
-	upgrader     websocket.Upgrader
-	ctx          context.Context
-	cancel       context.CancelFunc
+	hub              *Hub
+	metrics          *Metrics
+	workerHandle     frankenphp.Workers
+	limiter          *rate.Limiter // Rate Limiter
+	logger           *zap.Logger
+	upgrader         websocket.Upgrader
+	allowedOriginSet map[string]struct{}
+	ctx              context.Context
+	cancel           context.CancelFunc
 }
 
 func (WebsocketModule) CaddyModule() caddy.ModuleInfo {
@@ -124,7 +128,7 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 	m.upgrader = websocket.Upgrader{
 		ReadBufferSize:    1024,
 		WriteBufferSize:   1024,
-		CheckOrigin:       func(r *http.Request) bool { return true },
+		CheckOrigin:       m.checkOrigin,
 		EnableCompression: m.EnableCompression,
 	}
 
@@ -204,6 +208,15 @@ func (m *WebsocketModule) validateAndDefaults() error {
 		return fmt.Errorf("client_msg_rate_burst must be greater than 0")
 	}
 
+	m.allowedOriginSet = make(map[string]struct{}, len(m.AllowedOrigins))
+	for _, origin := range m.AllowedOrigins {
+		normalized, ok := normalizeOrigin(origin)
+		if !ok {
+			return fmt.Errorf("invalid allowed_origin %q", origin)
+		}
+		m.allowedOriginSet[normalized] = struct{}{}
+	}
+
 	var err error
 	if m.PingPeriod == "" {
 		m.pingPeriodDuration = DefaultPingPeriod
@@ -233,6 +246,49 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	}
 
 	return nil
+}
+
+func normalizeOrigin(raw string) (string, bool) {
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return "", false
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", false
+	}
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return "", false
+	}
+	return strings.ToLower(u.Scheme) + "://" + strings.ToLower(u.Host), true
+}
+
+func (m *WebsocketModule) checkOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+
+	normalized, ok := normalizeOrigin(origin)
+	if !ok {
+		m.logger.Warn("WebSocket origin rejected: malformed origin", zap.String("origin", origin))
+		return false
+	}
+
+	if len(m.allowedOriginSet) > 0 {
+		if _, ok := m.allowedOriginSet[normalized]; ok {
+			return true
+		}
+		m.logger.Warn("WebSocket origin rejected: not in allowlist", zap.String("origin", origin), zap.String("host", r.Host))
+		return false
+	}
+
+	parsedOrigin, _ := url.Parse(origin)
+	if strings.EqualFold(parsedOrigin.Host, r.Host) {
+		return true
+	}
+
+	m.logger.Warn("WebSocket origin rejected: host mismatch", zap.String("origin", origin), zap.String("host", r.Host))
+	return false
 }
 
 func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
@@ -511,6 +567,12 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.Errf("invalid boolean: %v", err)
 				}
 				m.EnableCompression = enabled
+			case "allowed_origins":
+				args := d.RemainingArgs()
+				if len(args) == 0 {
+					return d.ArgErr()
+				}
+				m.AllowedOrigins = append(m.AllowedOrigins, args...)
 			case "client_msg_rate_limit":
 				if !d.NextArg() {
 					return d.ArgErr()
