@@ -3,17 +3,3 @@
 .hadolint.yaml
 Dockerfile
 README.md
-benchmarks
-!benchmarks
-!benchmarks/laravel-broadcast
-!benchmarks/laravel-broadcast/**
-benchmarks/laravel-broadcast/**/vendor
-benchmarks/laravel-broadcast/**/node_modules
-benchmarks/laravel-broadcast/**/.env
-benchmarks/laravel-broadcast/**/.phpunit.cache
-benchmarks/laravel-broadcast/**/.phpunit.result.cache
-benchmarks/laravel-broadcast/**/public/build
-benchmarks/laravel-broadcast/**/public/hot
-benchmarks/laravel-broadcast/**/public/storage
-benchmarks/laravel-broadcast/**/storage/logs/*.log
-benchmarks/laravel-broadcast/results
