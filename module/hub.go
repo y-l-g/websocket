@@ -14,12 +14,9 @@ import (
 )
 
 const (
-	DefaultOutboundQueueSize               = 256
-	DefaultFanoutMode                      = "paced"
-	DefaultFanoutRoundSize                 = 8
-	DefaultFanoutRoundYield  time.Duration = 0
-	DefaultClientMsgRateLimit              = 50
-	DefaultClientMsgRateBurst              = 20
+	DefaultOutboundQueueSize  = 256
+	DefaultClientMsgRateLimit = 50
+	DefaultClientMsgRateBurst = 20
 )
 
 var (
@@ -58,18 +55,13 @@ type Hub struct {
 	shards  []*HubShard
 
 	// Config
-	maxConnections              int64
-	numShards                   int
-	activityTimeout             int // Seconds
-	outboundQueueSize           int
-	writeBurstSize              int
-	fanoutBackpressureThreshold int
-	fanoutBackpressureMaxWait   time.Duration
-	fanoutMode                  string
-	fanoutRoundSize             int
-	fanoutRoundYield            time.Duration
-	clientMsgRateLimit          float64
-	clientMsgRateBurst          int
+	maxConnections     int64
+	numShards          int
+	activityTimeout    int // Seconds
+	outboundQueueSize  int
+	writeBurstSize     int
+	clientMsgRateLimit float64
+	clientMsgRateBurst int
 
 	// Synchronization
 	clientsMu sync.RWMutex
@@ -106,30 +98,20 @@ type ClientMessageWrapper struct {
 }
 
 type DeliveryConfig struct {
-	OutboundQueueSize           int
-	WriteBurstSize              int
-	FanoutBackpressureThreshold int
-	FanoutBackpressureMaxWait   time.Duration
-	FanoutMode                  string
-	FanoutRoundSize             int
-	FanoutRoundYield            time.Duration
-	ClientMsgRateLimit          float64
-	ClientMsgRateBurst          int
-	EnableCompression           bool
+	OutboundQueueSize  int
+	WriteBurstSize     int
+	ClientMsgRateLimit float64
+	ClientMsgRateBurst int
+	EnableCompression  bool
 }
 
 func DefaultDeliveryConfig() DeliveryConfig {
 	return DeliveryConfig{
-		OutboundQueueSize:           DefaultOutboundQueueSize,
-		WriteBurstSize:              DefaultWriteBurstSize,
-		FanoutBackpressureThreshold: DefaultFanoutBackpressureThreshold,
-		FanoutBackpressureMaxWait:   DefaultFanoutBackpressureMaxWait,
-		FanoutMode:                  DefaultFanoutMode,
-		FanoutRoundSize:             DefaultFanoutRoundSize,
-		FanoutRoundYield:            DefaultFanoutRoundYield,
-		ClientMsgRateLimit:          DefaultClientMsgRateLimit,
-		ClientMsgRateBurst:          DefaultClientMsgRateBurst,
-		EnableCompression:           false,
+		OutboundQueueSize:  DefaultOutboundQueueSize,
+		WriteBurstSize:     DefaultWriteBurstSize,
+		ClientMsgRateLimit: DefaultClientMsgRateLimit,
+		ClientMsgRateBurst: DefaultClientMsgRateBurst,
+		EnableCompression:  false,
 	}
 }
 
@@ -140,21 +122,6 @@ func (c DeliveryConfig) withDefaults() DeliveryConfig {
 	}
 	if c.WriteBurstSize <= 0 {
 		c.WriteBurstSize = defaults.WriteBurstSize
-	}
-	if c.FanoutBackpressureThreshold <= 0 {
-		c.FanoutBackpressureThreshold = defaults.FanoutBackpressureThreshold
-	}
-	if c.FanoutBackpressureMaxWait <= 0 {
-		c.FanoutBackpressureMaxWait = defaults.FanoutBackpressureMaxWait
-	}
-	if c.FanoutMode == "" {
-		c.FanoutMode = defaults.FanoutMode
-	}
-	if c.FanoutRoundSize <= 0 {
-		c.FanoutRoundSize = defaults.FanoutRoundSize
-	}
-	if c.FanoutRoundYield < 0 {
-		c.FanoutRoundYield = defaults.FanoutRoundYield
 	}
 	if c.ClientMsgRateLimit <= 0 {
 		c.ClientMsgRateLimit = defaults.ClientMsgRateLimit
@@ -184,34 +151,29 @@ func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metr
 	}
 
 	h := &Hub{
-		AppID:                       appID,
-		auth:                        auth,
-		broker:                      broker,
-		logger:                      logger,
-		metrics:                     metrics,
-		ctx:                         ctx,
-		maxConnections:              int64(maxConn),
-		numShards:                   numShards,
-		activityTimeout:             timeoutSec,
-		outboundQueueSize:           delivery.OutboundQueueSize,
-		writeBurstSize:              delivery.WriteBurstSize,
-		fanoutBackpressureThreshold: delivery.FanoutBackpressureThreshold,
-		fanoutBackpressureMaxWait:   delivery.FanoutBackpressureMaxWait,
-		fanoutMode:                  delivery.FanoutMode,
-		fanoutRoundSize:             delivery.FanoutRoundSize,
-		fanoutRoundYield:            delivery.FanoutRoundYield,
-		clientMsgRateLimit:          delivery.ClientMsgRateLimit,
-		clientMsgRateBurst:          delivery.ClientMsgRateBurst,
-		done:                        make(chan struct{}),
-		clientMessage:               make(chan *ClientMessageWrapper),
-		subscribe:                   make(chan *Subscription),
-		unsubscribe:                 make(chan *Subscription),
-		shards:                      make([]*HubShard, numShards),
-		clients:                     make(map[*Client]bool),
+		AppID:              appID,
+		auth:               auth,
+		broker:             broker,
+		logger:             logger,
+		metrics:            metrics,
+		ctx:                ctx,
+		maxConnections:     int64(maxConn),
+		numShards:          numShards,
+		activityTimeout:    timeoutSec,
+		outboundQueueSize:  delivery.OutboundQueueSize,
+		writeBurstSize:     delivery.WriteBurstSize,
+		clientMsgRateLimit: delivery.ClientMsgRateLimit,
+		clientMsgRateBurst: delivery.ClientMsgRateBurst,
+		done:               make(chan struct{}),
+		clientMessage:      make(chan *ClientMessageWrapper),
+		subscribe:          make(chan *Subscription),
+		unsubscribe:        make(chan *Subscription),
+		shards:             make([]*HubShard, numShards),
+		clients:            make(map[*Client]bool),
 	}
 
 	for i := 0; i < numShards; i++ {
-		h.shards[i] = NewHubShard(i, logger, ctx, metrics, webhook, delivery.FanoutBackpressureThreshold, delivery.FanoutBackpressureMaxWait, delivery.FanoutMode, delivery.FanoutRoundSize, delivery.FanoutRoundYield)
+		h.shards[i] = NewHubShard(i, logger, ctx, metrics, webhook)
 		go h.shards[i].Run()
 	}
 
@@ -298,10 +260,10 @@ func (h *Hub) Authorize(client *Client, channel string) AuthResult {
 }
 
 func (h *Hub) Publish(channel, event, data string) bool {
-	return h.publish(channel, event, data, time.Now())
+	return h.publish(channel, event, data)
 }
 
-func (h *Hub) publish(channel, event, data string, entryAt time.Time) bool {
+func (h *Hub) publish(channel, event, data string) bool {
 	totalStart := time.Now()
 	validateStart := totalStart
 	hotPath := h.metrics != nil && h.metrics.HotPathEnabled
@@ -331,7 +293,6 @@ func (h *Hub) publish(channel, event, data string, entryAt time.Time) bool {
 
 	if hotPath {
 		h.metrics.PublishDuration.WithLabelValues("validate").Observe(time.Since(validateStart).Seconds())
-		observePhpToGoEntryDelay(h.metrics, data, entryAt)
 		defer func() {
 			h.metrics.PublishDuration.WithLabelValues("total").Observe(time.Since(totalStart).Seconds())
 		}()
@@ -358,26 +319,6 @@ func (h *Hub) publish(channel, event, data string, entryAt time.Time) bool {
 		return false
 	}
 	return true
-}
-
-func observePhpToGoEntryDelay(metrics *Metrics, data string, entryAt time.Time) {
-	if metrics == nil || !metrics.HotPathEnabled {
-		return
-	}
-
-	var payload struct {
-		PogoPhpBroadcastAt float64 `json:"pogoPhpBroadcastAt"`
-	}
-	if err := json.Unmarshal([]byte(data), &payload); err != nil || payload.PogoPhpBroadcastAt <= 0 {
-		return
-	}
-
-	phpBroadcastAt := time.Unix(0, int64(payload.PogoPhpBroadcastAt*float64(time.Millisecond)))
-	delay := entryAt.Sub(phpBroadcastAt)
-	if delay < 0 {
-		delay = 0
-	}
-	metrics.PhpToGoEntryDelay.Observe(delay.Seconds())
 }
 
 func (h *Hub) Run() {

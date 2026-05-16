@@ -8,28 +8,25 @@ import (
 )
 
 type Metrics struct {
-	Connections            prometheus.Gauge
-	Messages               prometheus.Counter
-	Subscriptions          prometheus.Counter
-	AuthDuration           prometheus.Histogram
-	BreakerTripped         prometheus.Counter
-	AuthFailures           *prometheus.CounterVec
-	DroppedMessages        prometheus.Counter
-	BrokerDropped          prometheus.Counter
-	PhpToGoEntryDelay      prometheus.Histogram
-	PublishDuration        *prometheus.HistogramVec
-	BrokerToHubDelay       prometheus.Histogram
-	HubToShardDelay        prometheus.Histogram
-	FanoutBackpressureWait prometheus.Histogram
-	FanoutSubscribers      prometheus.Histogram
-	ClientQueueDepth       prometheus.Histogram
-	ClientQueueResidence   prometheus.Histogram
-	WriteDuration          *prometheus.HistogramVec
-	WriteTotalDuration     *prometheus.HistogramVec
-	WriteCompleteFromSent  prometheus.Histogram
-	WriteFailures          *prometheus.CounterVec
-	DeliveryConfig         *prometheus.GaugeVec
-	HotPathEnabled         bool
+	Connections          prometheus.Gauge
+	Messages             prometheus.Counter
+	Subscriptions        prometheus.Counter
+	AuthDuration         prometheus.Histogram
+	BreakerTripped       prometheus.Counter
+	AuthFailures         *prometheus.CounterVec
+	DroppedMessages      prometheus.Counter
+	BrokerDropped        prometheus.Counter
+	PublishDuration      *prometheus.HistogramVec
+	BrokerToHubDelay     prometheus.Histogram
+	HubToShardDelay      prometheus.Histogram
+	FanoutSubscribers    prometheus.Histogram
+	ClientQueueDepth     prometheus.Histogram
+	ClientQueueResidence prometheus.Histogram
+	WriteDuration        *prometheus.HistogramVec
+	WriteTotalDuration   *prometheus.HistogramVec
+	WriteFailures        *prometheus.CounterVec
+	DeliveryConfig       *prometheus.GaugeVec
+	HotPathEnabled       bool
 }
 
 func NewMetrics(reg prometheus.Registerer) *Metrics {
@@ -76,12 +73,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "broker_dropped_messages_total",
 			Help:      "Number of messages dropped by the internal broker due to backpressure",
 		}),
-		PhpToGoEntryDelay: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: "pogo_websocket",
-			Name:      "php_to_go_entry_delay_seconds",
-			Help:      "Time from benchmark PHP broadcast timestamp to Go extension publish entry",
-			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 18),
-		}),
 		PublishDuration: prometheus.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: "pogo_websocket",
 			Name:      "publish_duration_seconds",
@@ -99,12 +90,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "hub_to_shard_delay_seconds",
 			Help:      "Time from hub broker receive to shard broadcast handling",
 			Buckets:   prometheus.ExponentialBuckets(0.00001, 2, 18),
-		}),
-		FanoutBackpressureWait: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: "pogo_websocket",
-			Name:      "fanout_backpressure_wait_seconds",
-			Help:      "Duration spent waiting for client outbound queues before fanout",
-			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
 		}),
 		FanoutSubscribers: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "pogo_websocket",
@@ -136,12 +121,6 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Help:      "Duration spent setting write deadline and writing websocket messages by message kind",
 			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 16),
 		}, []string{"kind"}),
-		WriteCompleteFromSent: prometheus.NewHistogram(prometheus.HistogramOpts{
-			Namespace: "pogo_websocket",
-			Name:      "write_complete_to_payload_sent_seconds",
-			Help:      "Time from benchmark payload sentAt timestamp to successful websocket write completion",
-			Buckets:   prometheus.ExponentialBuckets(0.0001, 2, 18),
-		}),
 		WriteFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Namespace: "pogo_websocket",
 			Name:      "write_failures_total",
@@ -163,17 +142,14 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		_ = reg.Register(m.AuthFailures)
 		_ = reg.Register(m.DroppedMessages)
 		_ = reg.Register(m.BrokerDropped)
-		_ = reg.Register(m.PhpToGoEntryDelay)
 		_ = reg.Register(m.PublishDuration)
 		_ = reg.Register(m.BrokerToHubDelay)
 		_ = reg.Register(m.HubToShardDelay)
-		_ = reg.Register(m.FanoutBackpressureWait)
 		_ = reg.Register(m.FanoutSubscribers)
 		_ = reg.Register(m.ClientQueueDepth)
 		_ = reg.Register(m.ClientQueueResidence)
 		_ = reg.Register(m.WriteDuration)
 		_ = reg.Register(m.WriteTotalDuration)
-		_ = reg.Register(m.WriteCompleteFromSent)
 		_ = reg.Register(m.WriteFailures)
 		_ = reg.Register(m.DeliveryConfig)
 	}
@@ -187,15 +163,6 @@ func (m *Metrics) SetDeliveryConfig(config DeliveryConfig) {
 	}
 	m.DeliveryConfig.WithLabelValues("outbound_queue_size").Set(float64(config.OutboundQueueSize))
 	m.DeliveryConfig.WithLabelValues("write_burst_size").Set(float64(config.WriteBurstSize))
-	m.DeliveryConfig.WithLabelValues("fanout_backpressure_threshold").Set(float64(config.FanoutBackpressureThreshold))
-	m.DeliveryConfig.WithLabelValues("fanout_backpressure_max_wait_seconds").Set(config.FanoutBackpressureMaxWait.Seconds())
-	if config.FanoutMode == fanoutModePaced {
-		m.DeliveryConfig.WithLabelValues("fanout_mode_paced").Set(1)
-	} else {
-		m.DeliveryConfig.WithLabelValues("fanout_mode_paced").Set(0)
-	}
-	m.DeliveryConfig.WithLabelValues("fanout_round_size").Set(float64(config.FanoutRoundSize))
-	m.DeliveryConfig.WithLabelValues("fanout_round_yield_seconds").Set(config.FanoutRoundYield.Seconds())
 	if config.EnableCompression {
 		m.DeliveryConfig.WithLabelValues("enable_compression").Set(1)
 	} else {

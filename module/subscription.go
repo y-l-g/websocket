@@ -2,22 +2,11 @@ package websocket
 
 import (
 	"encoding/json"
-	"runtime"
 	"strings"
-	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/y-l-g/websocket/module/internal/protocol"
 	"go.uber.org/zap"
-)
-
-const (
-	DefaultFanoutBackpressureThreshold = 16
-	DefaultFanoutBackpressureMaxWait   = 10 * time.Millisecond
-	fanoutBackpressureSleep            = time.Millisecond
-	fanoutAdaptiveQueueThreshold       = 4
-	fanoutModeBurst                    = "burst"
-	fanoutModePaced                    = "paced"
 )
 
 type Member struct {
@@ -26,49 +15,24 @@ type Member struct {
 }
 
 type SubscriptionManager struct {
-	channels                    map[string]map[*Client]bool
-	clients                     map[*Client]map[string]bool
-	presence                    map[string]map[string]Member
-	clientToUser                map[string]map[*Client]string
-	logger                      *zap.Logger
-	webhook                     *WebhookManager
-	metrics                     *Metrics
-	fanoutBackpressureThreshold int
-	fanoutBackpressureMaxWait   time.Duration
-	fanoutMode                  string
-	fanoutRoundSize             int
-	fanoutRoundYield            time.Duration
+	channels     map[string]map[*Client]bool
+	clients      map[*Client]map[string]bool
+	presence     map[string]map[string]Member
+	clientToUser map[string]map[*Client]string
+	logger       *zap.Logger
+	webhook      *WebhookManager
+	metrics      *Metrics
 }
 
-func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *WebhookManager, fanoutBackpressureThreshold int, fanoutBackpressureMaxWait time.Duration, fanoutMode string, fanoutRoundSize int, fanoutRoundYield time.Duration) *SubscriptionManager {
-	if fanoutBackpressureThreshold <= 0 {
-		fanoutBackpressureThreshold = DefaultFanoutBackpressureThreshold
-	}
-	if fanoutBackpressureMaxWait <= 0 {
-		fanoutBackpressureMaxWait = DefaultFanoutBackpressureMaxWait
-	}
-	if fanoutMode == "" {
-		fanoutMode = DefaultFanoutMode
-	}
-	if fanoutRoundSize <= 0 {
-		fanoutRoundSize = DefaultFanoutRoundSize
-	}
-	if fanoutRoundYield < 0 {
-		fanoutRoundYield = DefaultFanoutRoundYield
-	}
+func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *WebhookManager) *SubscriptionManager {
 	return &SubscriptionManager{
-		channels:                    make(map[string]map[*Client]bool),
-		clients:                     make(map[*Client]map[string]bool),
-		presence:                    make(map[string]map[string]Member),
-		clientToUser:                make(map[string]map[*Client]string),
-		logger:                      logger,
-		webhook:                     webhook,
-		metrics:                     metrics,
-		fanoutBackpressureThreshold: fanoutBackpressureThreshold,
-		fanoutBackpressureMaxWait:   fanoutBackpressureMaxWait,
-		fanoutMode:                  fanoutMode,
-		fanoutRoundSize:             fanoutRoundSize,
-		fanoutRoundYield:            fanoutRoundYield,
+		channels:     make(map[string]map[*Client]bool),
+		clients:      make(map[*Client]map[string]bool),
+		presence:     make(map[string]map[string]Member),
+		clientToUser: make(map[string]map[*Client]string),
+		logger:       logger,
+		webhook:      webhook,
+		metrics:      metrics,
 	}
 }
 
@@ -76,11 +40,6 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	clients := sm.GetClients(msg.Channel)
 	if len(clients) == 0 {
 		return
-	}
-	waitStart := time.Now()
-	sm.waitForFanoutCapacity(clients)
-	if sm.metrics != nil && sm.metrics.HotPathEnabled {
-		sm.metrics.FanoutBackpressureWait.Observe(time.Since(waitStart).Seconds())
 	}
 
 	if sm.metrics != nil && sm.metrics.HotPathEnabled {
@@ -98,90 +57,19 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	}
 
 	pm, err := websocket.NewPreparedMessage(websocket.TextMessage, payload)
-	sentAtMs := 0.0
-	if sm.metrics != nil && sm.metrics.HotPathEnabled {
-		sentAtMs = benchmarkPayloadSentAt(msg.Data)
-	}
 	if err != nil {
 		sm.logger.Error("PreparedMessage error", zap.Error(err))
-		sm.fanout(clients, wrapBenchmarkOutbound(payload, sentAtMs))
+		sm.fanout(clients, payload)
 		return
 	}
 
-	sm.fanout(clients, wrapBenchmarkOutbound(pm, sentAtMs))
+	sm.fanout(clients, pm)
 }
 
 func (sm *SubscriptionManager) fanout(clients map[*Client]bool, payload any) {
-	if sm.fanoutMode != fanoutModePaced {
-		for client := range clients {
-			client.Send(payload)
-		}
-		return
-	}
-
-	sentInRound := 0
 	for client := range clients {
 		client.Send(payload)
-		sentInRound++
-		if sentInRound < sm.fanoutRoundSize {
-			continue
-		}
-		sentInRound = 0
-		if sm.fanoutRoundYield > 0 {
-			time.Sleep(sm.fanoutRoundYield)
-		} else if maxQueueDepth(clients) >= fanoutAdaptiveQueueThreshold {
-			time.Sleep(time.Millisecond)
-		} else {
-			runtime.Gosched()
-		}
 	}
-}
-
-func benchmarkPayloadSentAt(data json.RawMessage) float64 {
-	var payload struct {
-		ID        *int    `json:"id"`
-		Size      *int    `json:"size"`
-		CreatedAt float64 `json:"createdAt"`
-		SentAt    float64 `json:"sentAt"`
-		Payload   *string `json:"payload"`
-	}
-	if err := json.Unmarshal(data, &payload); err != nil {
-		return 0
-	}
-	if payload.ID == nil || payload.Size == nil || payload.Payload == nil || payload.CreatedAt <= 0 || payload.SentAt <= 0 {
-		return 0
-	}
-	return payload.SentAt
-}
-
-func wrapBenchmarkOutbound(payload any, sentAtMs float64) any {
-	if sentAtMs <= 0 {
-		return payload
-	}
-	return benchmarkOutboundMessage{
-		payload:  payload,
-		sentAtMs: sentAtMs,
-	}
-}
-
-func (sm *SubscriptionManager) waitForFanoutCapacity(clients map[*Client]bool) {
-	deadline := time.Now().Add(sm.fanoutBackpressureMaxWait)
-	for maxQueueDepth(clients) >= sm.fanoutBackpressureThreshold {
-		if time.Now().After(deadline) {
-			return
-		}
-		time.Sleep(fanoutBackpressureSleep)
-	}
-}
-
-func maxQueueDepth(clients map[*Client]bool) int {
-	maxDepth := 0
-	for client := range clients {
-		if depth := len(client.send); depth > maxDepth {
-			maxDepth = depth
-		}
-	}
-	return maxDepth
 }
 
 func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userData json.RawMessage) {

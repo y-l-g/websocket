@@ -20,10 +20,10 @@ type HubShard struct {
 	ctx         context.Context
 }
 
-func NewHubShard(id int, logger *zap.Logger, ctx context.Context, metrics *Metrics, webhook *WebhookManager, fanoutBackpressureThreshold int, fanoutBackpressureMaxWait time.Duration, fanoutMode string, fanoutRoundSize int, fanoutRoundYield time.Duration) *HubShard {
+func NewHubShard(id int, logger *zap.Logger, ctx context.Context, metrics *Metrics, webhook *WebhookManager) *HubShard {
 	return &HubShard{
 		id:          id,
-		subs:        NewSubscriptionManager(logger, metrics, webhook, fanoutBackpressureThreshold, fanoutBackpressureMaxWait, fanoutMode, fanoutRoundSize, fanoutRoundYield),
+		subs:        NewSubscriptionManager(logger, metrics, webhook),
 		broadcast:   make(chan *BroadcastMessage),
 		subscribe:   make(chan *Subscription),
 		unsubscribe: make(chan *Subscription),

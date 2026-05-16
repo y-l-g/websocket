@@ -213,23 +213,7 @@ class Broadcaster extends BaseBroadcaster
      */
     protected function encodeBroadcastPayload(array $payload)
     {
-        if ($this->isBenchmarkPayload($payload)) {
-            $payload['pogoPhpBroadcastAt'] = microtime(true) * 1000;
-        }
-
         return json_encode($payload);
-    }
-
-    /**
-     * @param  array<mixed>  $payload
-     */
-    private function isBenchmarkPayload(array $payload): bool
-    {
-        return array_key_exists('id', $payload)
-            && array_key_exists('size', $payload)
-            && array_key_exists('createdAt', $payload)
-            && array_key_exists('sentAt', $payload)
-            && array_key_exists('payload', $payload);
     }
 
     protected function signChannelAuth(string $channelName): string

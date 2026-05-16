@@ -91,11 +91,6 @@ type queuedOutboundMessage struct {
 	enqueuedAt time.Time
 }
 
-type benchmarkOutboundMessage struct {
-	payload  any
-	sentAtMs float64
-}
-
 func (c *Client) Send(msg any) {
 	depth := len(c.send)
 	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
@@ -355,21 +350,16 @@ func (c *Client) writeOutboundBurst(first any) error {
 
 func (c *Client) writeQueuedOutbound(message any, start time.Time, includesDeadline bool) error {
 	payload := message
-	var sentAtMs float64
 	if queued, ok := message.(queuedOutboundMessage); ok {
 		payload = queued.payload
 		if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
 			c.hub.metrics.ClientQueueResidence.Observe(time.Since(queued.enqueuedAt).Seconds())
 		}
 	}
-	if benchmark, ok := payload.(benchmarkOutboundMessage); ok {
-		payload = benchmark.payload
-		sentAtMs = benchmark.sentAtMs
-	}
 
 	switch v := payload.(type) {
 	case []byte:
-		return c.writeOutboundMessage("bytes", start, includesDeadline, sentAtMs, func() error {
+		return c.writeOutboundMessage("bytes", start, includesDeadline, func() error {
 			w, err := c.conn.NextWriter(websocket.TextMessage)
 			if err != nil {
 				return err
@@ -380,7 +370,7 @@ func (c *Client) writeQueuedOutbound(message any, start time.Time, includesDeadl
 			return w.Close()
 		})
 	case *websocket.PreparedMessage:
-		return c.writeOutboundMessage("prepared", start, includesDeadline, sentAtMs, func() error {
+		return c.writeOutboundMessage("prepared", start, includesDeadline, func() error {
 			return c.conn.WritePreparedMessage(v)
 		})
 	default:
@@ -388,7 +378,7 @@ func (c *Client) writeQueuedOutbound(message any, start time.Time, includesDeadl
 	}
 }
 
-func (c *Client) writeOutboundMessage(kind string, start time.Time, includesDeadline bool, sentAtMs float64, fn func() error) error {
+func (c *Client) writeOutboundMessage(kind string, start time.Time, includesDeadline bool, fn func() error) error {
 	err := c.writeMessage(kind, fn)
 
 	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
@@ -397,14 +387,6 @@ func (c *Client) writeOutboundMessage(kind string, start time.Time, includesDead
 			metricKind += "_with_deadline"
 		}
 		c.hub.metrics.WriteTotalDuration.WithLabelValues(metricKind).Observe(time.Since(start).Seconds())
-		if err == nil && sentAtMs > 0 {
-			sentAt := time.Unix(0, int64(sentAtMs*float64(time.Millisecond)))
-			delay := time.Since(sentAt)
-			if delay < 0 {
-				delay = 0
-			}
-			c.hub.metrics.WriteCompleteFromSent.Observe(delay.Seconds())
-		}
 	}
 
 	return err

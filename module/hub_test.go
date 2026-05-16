@@ -80,8 +80,7 @@ func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 	broker := &MockBroker{published: make(chan *BroadcastMessage, 1), delay: 5 * time.Millisecond}
 	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, broker, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
 
-	phpBroadcastAt := float64(time.Now().Add(-time.Millisecond).UnixNano()) / float64(time.Millisecond)
-	data, err := json.Marshal(map[string]float64{"pogoPhpBroadcastAt": phpBroadcastAt})
+	data, err := json.Marshal(map[string]float64{"sentAt": 1})
 	if err != nil {
 		t.Fatalf("Marshal failed: %v", err)
 	}
@@ -109,9 +108,6 @@ func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 	brokerSum := metricHistogramSum(t, metrics.PublishDuration.WithLabelValues("broker"))
 	if totalSum < brokerSum {
 		t.Fatalf("Expected publish total duration %.9f to be >= broker duration %.9f", totalSum, brokerSum)
-	}
-	if count := metricCount(t, metrics.PhpToGoEntryDelay); count != 1 {
-		t.Fatalf("Expected php-to-go entry count 1, got %d", count)
 	}
 }
 
@@ -150,7 +146,7 @@ func TestHubAndShardDelayMetricsRecordNonNegativeDurations(t *testing.T) {
 	defer cancel()
 
 	metrics := NewMetrics(prometheus.NewRegistry())
-	shard := NewHubShard(0, logger, ctx, metrics, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait, DefaultFanoutMode, DefaultFanoutRoundSize, DefaultFanoutRoundYield)
+	shard := NewHubShard(0, logger, ctx, metrics, nil)
 	go shard.Run()
 
 	msg := &BroadcastMessage{

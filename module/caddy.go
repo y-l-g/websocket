@@ -26,32 +26,27 @@ func init() {
 }
 
 type WebsocketModule struct {
-	AppID                       string  `json:"app_id,omitempty"`
-	AuthPath                    string  `json:"auth_path,omitempty"`
-	AuthScript                  string  `json:"auth_script,omitempty"`
-	NumWorkers                  int     `json:"num_workers,omitempty"`
-	MaxConnections              int     `json:"max_connections,omitempty"`
-	MaxAuthBody                 int     `json:"max_auth_body,omitempty"`
-	MaxConcurrentAuth           int     `json:"max_concurrent_auth,omitempty"`
-	NumShards                   int     `json:"num_shards,omitempty"`
-	HandshakeRate               float64 `json:"handshake_rate,omitempty"`  // New
-	HandshakeBurst              int     `json:"handshake_burst,omitempty"` // New
-	OutboundQueueSize           int     `json:"outbound_queue_size,omitempty"`
-	WriteBurstSize              int     `json:"write_burst_size,omitempty"`
-	FanoutBackpressureThreshold int     `json:"fanout_backpressure_threshold,omitempty"`
-	FanoutBackpressureMaxWait   string  `json:"fanout_backpressure_max_wait,omitempty"`
-	FanoutMode                  string  `json:"fanout_mode,omitempty"`
-	FanoutRoundSize             int     `json:"fanout_round_size,omitempty"`
-	FanoutRoundYield            string  `json:"fanout_round_yield,omitempty"`
-	ClientMsgRateLimit            float64 `json:"client_msg_rate_limit,omitempty"`
-	ClientMsgRateBurst            int     `json:"client_msg_rate_burst,omitempty"`
-	EnableCompression           bool    `json:"enable_compression,omitempty"`
-	WebhookURL                  string  `json:"webhook_url,omitempty"`
-	WebhookSecret               string  `json:"webhook_secret,omitempty"`
-	RedisHost                   string  `json:"redis_host,omitempty"`
-	RedisPassword               string  `json:"redis_password,omitempty"`
-	RedisDB                     int     `json:"redis_db,omitempty"`
-	RedisTLS                    bool    `json:"redis_tls,omitempty"`
+	AppID              string  `json:"app_id,omitempty"`
+	AuthPath           string  `json:"auth_path,omitempty"`
+	AuthScript         string  `json:"auth_script,omitempty"`
+	NumWorkers         int     `json:"num_workers,omitempty"`
+	MaxConnections     int     `json:"max_connections,omitempty"`
+	MaxAuthBody        int     `json:"max_auth_body,omitempty"`
+	MaxConcurrentAuth  int     `json:"max_concurrent_auth,omitempty"`
+	NumShards          int     `json:"num_shards,omitempty"`
+	HandshakeRate      float64 `json:"handshake_rate,omitempty"`  // New
+	HandshakeBurst     int     `json:"handshake_burst,omitempty"` // New
+	OutboundQueueSize  int     `json:"outbound_queue_size,omitempty"`
+	WriteBurstSize     int     `json:"write_burst_size,omitempty"`
+	ClientMsgRateLimit float64 `json:"client_msg_rate_limit,omitempty"`
+	ClientMsgRateBurst int     `json:"client_msg_rate_burst,omitempty"`
+	EnableCompression  bool    `json:"enable_compression,omitempty"`
+	WebhookURL         string  `json:"webhook_url,omitempty"`
+	WebhookSecret      string  `json:"webhook_secret,omitempty"`
+	RedisHost          string  `json:"redis_host,omitempty"`
+	RedisPassword      string  `json:"redis_password,omitempty"`
+	RedisDB            int     `json:"redis_db,omitempty"`
+	RedisTLS           bool    `json:"redis_tls,omitempty"`
 
 	// Timeouts
 	PingPeriod string `json:"ping_period,omitempty"`
@@ -59,11 +54,9 @@ type WebsocketModule struct {
 	PongWait   string `json:"pong_wait,omitempty"`
 
 	// Parsed Durations
-	pingPeriodDuration                time.Duration
-	writeWaitDuration                 time.Duration
-	pongWaitDuration                  time.Duration
-	fanoutBackpressureMaxWaitDuration time.Duration
-	fanoutRoundYieldDuration          time.Duration
+	pingPeriodDuration time.Duration
+	writeWaitDuration  time.Duration
+	pongWaitDuration   time.Duration
 
 	hub          *Hub
 	metrics      *Metrics
@@ -113,16 +106,11 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 	}
 
 	delivery := DeliveryConfig{
-		OutboundQueueSize:           m.OutboundQueueSize,
-		WriteBurstSize:              m.WriteBurstSize,
-		FanoutBackpressureThreshold: m.FanoutBackpressureThreshold,
-		FanoutBackpressureMaxWait:   m.fanoutBackpressureMaxWaitDuration,
-		FanoutMode:                  m.FanoutMode,
-		FanoutRoundSize:             m.FanoutRoundSize,
-		FanoutRoundYield:            m.fanoutRoundYieldDuration,
-		ClientMsgRateLimit:          m.ClientMsgRateLimit,
-		ClientMsgRateBurst:          m.ClientMsgRateBurst,
-		EnableCompression:           m.EnableCompression,
+		OutboundQueueSize:  m.OutboundQueueSize,
+		WriteBurstSize:     m.WriteBurstSize,
+		ClientMsgRateLimit: m.ClientMsgRateLimit,
+		ClientMsgRateBurst: m.ClientMsgRateBurst,
+		EnableCompression:  m.EnableCompression,
 	}
 	m.hub = NewHub(m.AppID, m.logger, m.ctx, m.metrics, authProvider, webhook, broker, m.MaxConnections, m.NumShards, m.pingPeriodDuration, delivery)
 	m.metrics.SetDeliveryConfig(delivery.withDefaults())
@@ -203,25 +191,6 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	if m.WriteBurstSize < 1 {
 		return fmt.Errorf("write_burst_size must be greater than 0")
 	}
-	if m.FanoutBackpressureThreshold == 0 {
-		m.FanoutBackpressureThreshold = defaultDelivery.FanoutBackpressureThreshold
-	}
-	if m.FanoutBackpressureThreshold < 1 {
-		return fmt.Errorf("fanout_backpressure_threshold must be greater than 0")
-	}
-	if m.FanoutMode == "" {
-		m.FanoutMode = defaultDelivery.FanoutMode
-	}
-	if m.FanoutMode != fanoutModeBurst && m.FanoutMode != fanoutModePaced {
-		return fmt.Errorf("fanout_mode must be %q or %q", fanoutModeBurst, fanoutModePaced)
-	}
-	if m.FanoutRoundSize == 0 {
-		m.FanoutRoundSize = defaultDelivery.FanoutRoundSize
-	}
-	if m.FanoutRoundSize < 1 {
-		return fmt.Errorf("fanout_round_size must be greater than 0")
-	}
-
 	if m.ClientMsgRateLimit == 0 {
 		m.ClientMsgRateLimit = DefaultClientMsgRateLimit
 	}
@@ -263,29 +232,6 @@ func (m *WebsocketModule) validateAndDefaults() error {
 		}
 	}
 
-	if m.FanoutBackpressureMaxWait == "" {
-		m.fanoutBackpressureMaxWaitDuration = defaultDelivery.FanoutBackpressureMaxWait
-	} else {
-		m.fanoutBackpressureMaxWaitDuration, err = time.ParseDuration(m.FanoutBackpressureMaxWait)
-		if err != nil {
-			return fmt.Errorf("invalid fanout_backpressure_max_wait: %v", err)
-		}
-		if m.fanoutBackpressureMaxWaitDuration < 0 {
-			return fmt.Errorf("fanout_backpressure_max_wait must not be negative")
-		}
-	}
-	if m.FanoutRoundYield == "" {
-		m.fanoutRoundYieldDuration = defaultDelivery.FanoutRoundYield
-	} else {
-		m.fanoutRoundYieldDuration, err = time.ParseDuration(m.FanoutRoundYield)
-		if err != nil {
-			return fmt.Errorf("invalid fanout_round_yield: %v", err)
-		}
-		if m.fanoutRoundYieldDuration < 0 {
-			return fmt.Errorf("fanout_round_yield must not be negative")
-		}
-	}
-
 	return nil
 }
 
@@ -305,27 +251,19 @@ func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
 		m.WriteBurstSize = parsed
 	}
 	if value := os.Getenv("POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD"); value != "" {
-		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD: %v", err)
-		}
-		m.FanoutBackpressureThreshold = parsed
+		return fmt.Errorf("POGO_WS_FANOUT_BACKPRESSURE_THRESHOLD has been removed")
 	}
 	if value := os.Getenv("POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT"); value != "" {
-		m.FanoutBackpressureMaxWait = value
+		return fmt.Errorf("POGO_WS_FANOUT_BACKPRESSURE_MAX_WAIT has been removed")
 	}
 	if value := os.Getenv("POGO_WS_FANOUT_MODE"); value != "" {
-		m.FanoutMode = value
+		return fmt.Errorf("POGO_WS_FANOUT_MODE has been removed")
 	}
 	if value := os.Getenv("POGO_WS_FANOUT_ROUND_SIZE"); value != "" {
-		parsed, err := strconv.Atoi(value)
-		if err != nil {
-			return fmt.Errorf("invalid POGO_WS_FANOUT_ROUND_SIZE: %v", err)
-		}
-		m.FanoutRoundSize = parsed
+		return fmt.Errorf("POGO_WS_FANOUT_ROUND_SIZE has been removed")
 	}
 	if value := os.Getenv("POGO_WS_FANOUT_ROUND_YIELD"); value != "" {
-		m.FanoutRoundYield = value
+		return fmt.Errorf("POGO_WS_FANOUT_ROUND_YIELD has been removed")
 	}
 	if value := os.Getenv("POGO_WS_ENABLE_COMPRESSION"); value != "" {
 		parsed, err := strconv.ParseBool(value)
@@ -554,38 +492,15 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				}
 				m.WriteBurstSize = c
 			case "fanout_backpressure_threshold":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				var c int
-				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
-					return d.Errf("invalid number: %v", err)
-				}
-				m.FanoutBackpressureThreshold = c
+				return d.Err("fanout_backpressure_threshold has been removed")
 			case "fanout_backpressure_max_wait":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				m.FanoutBackpressureMaxWait = d.Val()
+				return d.Err("fanout_backpressure_max_wait has been removed")
 			case "fanout_mode":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				m.FanoutMode = d.Val()
+				return d.Err("fanout_mode has been removed")
 			case "fanout_round_size":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				var c int
-				if _, err := fmt.Sscanf(d.Val(), "%d", &c); err != nil {
-					return d.Errf("invalid number: %v", err)
-				}
-				m.FanoutRoundSize = c
+				return d.Err("fanout_round_size has been removed")
 			case "fanout_round_yield":
-				if !d.NextArg() {
-					return d.ArgErr()
-				}
-				m.FanoutRoundYield = d.Val()
+				return d.Err("fanout_round_yield has been removed")
 			case "enable_compression":
 				if !d.NextArg() {
 					m.EnableCompression = true

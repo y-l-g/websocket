@@ -3,9 +3,7 @@ package websocket
 import (
 	"encoding/json"
 	"testing"
-	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap"
 )
@@ -15,11 +13,6 @@ func newTestSubManager() *SubscriptionManager {
 		zap.NewNop(),
 		NewMetrics(prometheus.NewRegistry()),
 		nil,
-		DefaultFanoutBackpressureThreshold,
-		DefaultFanoutBackpressureMaxWait,
-		DefaultFanoutMode,
-		DefaultFanoutRoundSize,
-		DefaultFanoutRoundYield,
 	)
 }
 
@@ -126,96 +119,8 @@ func TestMemberTracking(t *testing.T) {
 	}
 }
 
-func TestBroadcastToChannelWaitsForQueuedClients(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait, DefaultFanoutMode, DefaultFanoutRoundSize, DefaultFanoutRoundYield)
-	client := &Client{ID: "c1", send: make(chan any, DefaultFanoutBackpressureThreshold+1)}
-	for i := 0; i < DefaultFanoutBackpressureThreshold; i++ {
-		client.send <- []byte("queued")
-	}
-	sm.channels["public-test"] = map[*Client]bool{client: true}
-
-	go func() {
-		time.Sleep(2 * time.Millisecond)
-		for len(client.send) > 0 {
-			<-client.send
-		}
-	}()
-
-	start := time.Now()
-	sm.BroadcastToChannel(&BroadcastMessage{
-		Channel: "public-test",
-		Event:   "bench.event",
-		Data:    json.RawMessage(`{}`),
-	})
-
-	if elapsed := time.Since(start); elapsed < time.Millisecond {
-		t.Fatalf("Expected broadcast to wait for client queue capacity, only waited %s", elapsed)
-	}
-
-	select {
-	case msg := <-client.send:
-		if _, ok := msg.(*websocket.PreparedMessage); !ok {
-			t.Fatalf("Expected prepared broadcast message, got %T", msg)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("Timed out waiting for broadcast message")
-	}
-}
-
-func TestBroadcastToChannelGivesUpOnQueuedClients(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait, DefaultFanoutMode, DefaultFanoutRoundSize, DefaultFanoutRoundYield)
-	client := &Client{ID: "c1", send: make(chan any, DefaultFanoutBackpressureThreshold+1)}
-	for i := 0; i < DefaultFanoutBackpressureThreshold; i++ {
-		client.send <- []byte("queued")
-	}
-	sm.channels["public-test"] = map[*Client]bool{client: true}
-
-	start := time.Now()
-	sm.BroadcastToChannel(&BroadcastMessage{
-		Channel: "public-test",
-		Event:   "bench.event",
-		Data:    json.RawMessage(`{}`),
-	})
-
-	elapsed := time.Since(start)
-	if elapsed < DefaultFanoutBackpressureMaxWait {
-		t.Fatalf("Expected broadcast to wait until max wait, only waited %s", elapsed)
-	}
-	if elapsed > 50*time.Millisecond {
-		t.Fatalf("Expected bounded wait, waited %s", elapsed)
-	}
-
-	if len(client.send) != DefaultFanoutBackpressureThreshold+1 {
-		t.Fatalf("Expected broadcast to enqueue after bounded wait, queue depth is %d", len(client.send))
-	}
-}
-
-func TestBroadcastToChannelHonorsConfiguredBackpressure(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, 2, 3*time.Millisecond, DefaultFanoutMode, DefaultFanoutRoundSize, DefaultFanoutRoundYield)
-	client := &Client{ID: "c1", send: make(chan any, 3)}
-	for i := 0; i < 2; i++ {
-		client.send <- []byte("queued")
-	}
-	sm.channels["public-test"] = map[*Client]bool{client: true}
-
-	start := time.Now()
-	sm.BroadcastToChannel(&BroadcastMessage{
-		Channel: "public-test",
-		Event:   "bench.event",
-		Data:    json.RawMessage(`{}`),
-	})
-
-	elapsed := time.Since(start)
-	if elapsed < 3*time.Millisecond {
-		t.Fatalf("Expected broadcast to wait for configured max wait, only waited %s", elapsed)
-	}
-	if elapsed > 50*time.Millisecond {
-		t.Fatalf("Expected bounded wait, waited %s", elapsed)
-	}
-}
-
-func TestBroadcastToChannelHonorsPacedFanout(t *testing.T) {
-	sm := NewSubscriptionManager(zap.NewNop(), nil, nil, DefaultFanoutBackpressureThreshold, DefaultFanoutBackpressureMaxWait, fanoutModePaced, 2, time.Millisecond)
+func TestBroadcastToChannelFanoutSendsToAllClients(t *testing.T) {
+	sm := NewSubscriptionManager(zap.NewNop(), nil, nil)
 	clients := make(map[*Client]bool)
 	for i := 0; i < 5; i++ {
 		client := &Client{ID: "c", send: make(chan any, 1)}
@@ -223,16 +128,12 @@ func TestBroadcastToChannelHonorsPacedFanout(t *testing.T) {
 	}
 	sm.channels["public-test"] = clients
 
-	start := time.Now()
 	sm.BroadcastToChannel(&BroadcastMessage{
 		Channel: "public-test",
 		Event:   "bench.event",
 		Data:    json.RawMessage(`{}`),
 	})
 
-	if elapsed := time.Since(start); elapsed < 2*time.Millisecond {
-		t.Fatalf("Expected paced fanout to yield between rounds, only took %s", elapsed)
-	}
 	for client := range clients {
 		if len(client.send) != 1 {
 			t.Fatalf("Expected client to receive one message, got queue depth %d", len(client.send))
