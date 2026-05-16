@@ -104,9 +104,40 @@ class BroadcasterTest extends TestCase
 
     public function testBroadcastThrowsWhenExtensionMissing()
     {
-        $broadcaster = new Broadcaster(['app_id' => 'test-app', 'secret' => 'super-secret']);
+        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+            protected function hasBroadcastMulti(): bool
+            {
+                return false;
+            }
+
+            protected function hasPublish(): bool
+            {
+                return false;
+            }
+        };
+
         $this->expectException(BroadcastException::class);
         $this->expectExceptionMessage('pogo_extension_not_loaded');
+        $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
+    }
+
+    public function testBroadcastReportsNativeMultiFailure()
+    {
+        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+            protected function hasBroadcastMulti(): bool
+            {
+                return true;
+            }
+
+            protected function broadcastMulti(string $channelsJson, string $event, string $payloadJson): int
+            {
+                return 1;
+            }
+        };
+
+        $this->expectException(BroadcastException::class);
+        $this->expectExceptionMessage('broadcast_multi_failed');
+        $this->expectExceptionMessage('status=1(hub_missing)');
         $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
     }
 

@@ -158,7 +158,7 @@ class Broadcaster extends BaseBroadcaster
 
         $eventStr = (string) $event;
 
-        if (function_exists('pogo_websocket_broadcast_multi')) {
+        if ($this->hasBroadcastMulti()) {
             $validChannels = [];
             foreach ($channels as $channel) {
                 $s = (string) $channel;
@@ -170,7 +170,7 @@ class Broadcaster extends BaseBroadcaster
             if (!empty($validChannels)) {
                 $channelsJson = json_encode($validChannels);
                 if ($channelsJson !== false) {
-                    $result = pogo_websocket_broadcast_multi($this->appId, $channelsJson, $eventStr, $payloadJson);
+                    $result = $this->broadcastMulti($channelsJson, $eventStr, $payloadJson);
                     if ($result === 0) {
                         return;
                     }
@@ -181,19 +181,39 @@ class Broadcaster extends BaseBroadcaster
             }
         }
 
-        if (!function_exists('pogo_websocket_publish')) {
+        if (!$this->hasPublish()) {
             $this->throwBroadcastError('pogo_extension_not_loaded', $channels, $eventStr);
         }
 
         foreach ($channels as $channel) {
             $channelStr = (string) $channel;
             if ($channelStr !== '' && $eventStr !== '') {
-                $result = pogo_websocket_publish($this->appId, $channelStr, $eventStr, $payloadJson);
+                $result = $this->publish($channelStr, $eventStr, $payloadJson);
                 if ($result !== 0) {
                     $this->throwBroadcastError('publish_failed', [$channelStr], $eventStr, 'pogo_websocket_publish', $result);
                 }
             }
         }
+    }
+
+    protected function hasBroadcastMulti(): bool
+    {
+        return function_exists('pogo_websocket_broadcast_multi');
+    }
+
+    protected function broadcastMulti(string $channelsJson, string $event, string $payloadJson): int
+    {
+        return pogo_websocket_broadcast_multi($this->appId, $channelsJson, $event, $payloadJson);
+    }
+
+    protected function hasPublish(): bool
+    {
+        return function_exists('pogo_websocket_publish');
+    }
+
+    protected function publish(string $channel, string $event, string $payloadJson): int
+    {
+        return pogo_websocket_publish($this->appId, $channel, $event, $payloadJson);
     }
 
     /**
