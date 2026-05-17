@@ -162,7 +162,7 @@ func (m *WebsocketModule) validateAndDefaults() error {
 		return fmt.Errorf("the 'auth_path' directive is required")
 	}
 	if m.AppSecret == "" {
-		m.AppSecret = os.Getenv("POGO_WS_APP_SECRET")
+		m.AppSecret = appSecretFromEnv()
 	}
 	if m.AppSecret == "" {
 		return fmt.Errorf("the 'app_secret' directive is required")
@@ -316,7 +316,7 @@ func (m *WebsocketModule) checkOrigin(r *http.Request) bool {
 }
 
 func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
-	if value := os.Getenv("POGO_WS_APP_SECRET"); value != "" {
+	if value := appSecretFromEnv(); value != "" {
 		m.AppSecret = value
 	}
 	if value := os.Getenv("POGO_WS_OUTBOUND_QUEUE_SIZE"); value != "" {
@@ -384,6 +384,10 @@ func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
 		m.ClientMsgRateBurst = parsed
 	}
 	return nil
+}
+
+func appSecretFromEnv() string {
+	return os.Getenv("WS_APP_SECRET")
 }
 
 func (m *WebsocketModule) setupWorkers() error {

@@ -84,6 +84,23 @@ func TestWebsocketModuleRequiresAppSecret(t *testing.T) {
 	}
 }
 
+func TestWebsocketModuleUsesCanonicalAppSecretEnv(t *testing.T) {
+	t.Setenv("WS_APP_SECRET", "canonical-secret")
+
+	m := WebsocketModule{
+		AppID:      "pogo-app",
+		AuthPath:   "/pogo/auth",
+		AuthScript: "/tmp/auth.php",
+	}
+
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+	if m.AppSecret != "canonical-secret" {
+		t.Fatalf("AppSecret = %q, want canonical-secret", m.AppSecret)
+	}
+}
+
 func TestWebsocketModuleProtocolParsing(t *testing.T) {
 	for _, proto := range []string{"5", "7", "10"} {
 		if !isSupportedProtocol(proto) {
@@ -237,7 +254,7 @@ func TestWebsocketModuleDeliveryConfigEnvOverrides(t *testing.T) {
 	t.Setenv("POGO_WS_SHARD_QUEUE_SIZE", "2048")
 	t.Setenv("POGO_WS_WRITE_BURST_SIZE", "8")
 	t.Setenv("POGO_WS_ENABLE_COMPRESSION", "true")
-	t.Setenv("POGO_WS_APP_SECRET", "test-secret")
+	t.Setenv("WS_APP_SECRET", "test-secret")
 
 	m := WebsocketModule{
 		AppID:             "pogo-app",
