@@ -1,6 +1,6 @@
 # Pogo WebSocket
 
-**The Native, High-Performance Real-Time Solution for PHP.**
+**An experimental native real-time module for FrankenPHP applications.**
 
 - A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
 - CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_broadcast_multi` allow PHP to broadcast messages instantly and return native status codes for precise failures.
@@ -23,10 +23,23 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
 ## Features
 
 - **Pusher Protocol v7 Compliant:** Supports Private & Presence channels, and User Authentication.
-- **High Performance:** Benchmarked at **550+ messages/sec** with sub-10ms latency on minimal hardware. See [`benchmarks/`](benchmarks/) for the reproducible harness.
+- **Benchmark Harness:** A reproducible benchmark setup is available in the
+  `benchmarks/` workspace. Current results are experimental and
+  topology-specific, so this README intentionally does not quote headline
+  performance numbers.
 - **Zero-Copy Broadcasts:** Optimizes CPU usage by encoding messages once for thousands of clients.
 - **DoS Protection:** Built-in Token Bucket Rate Limiting, Handshake Throttling, and Circuit Breakers for PHP Auth.
 - **Horizontal Scaling:** Redis Pub/Sub support for multi-node clusters.
+
+## Production status
+
+Pogo WebSocket is experimental and its API may change. It is suitable for demos,
+local testing, and controlled evaluation of a FrankenPHP-native WebSocket
+runtime.
+
+Do not yet present it as a production substitute for Laravel Reverb, Pusher, or
+other hosted realtime systems. Validate behavior, benchmarks, and failure modes
+for your topology before using it with production traffic.
 
 ---
 
