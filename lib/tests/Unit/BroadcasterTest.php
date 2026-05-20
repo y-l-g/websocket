@@ -146,6 +146,44 @@ class BroadcasterTest extends TestCase
         $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
     }
 
+    public function testBroadcastMultiSuccessDoesNotFallbackToSinglePublish()
+    {
+        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+            public int $multiCalls = 0;
+
+            public int $publishCalls = 0;
+
+            protected function hasBroadcastMulti(): bool
+            {
+                return true;
+            }
+
+            protected function broadcastMulti(string $channelsJson, string $event, string $payloadJson): int
+            {
+                $this->multiCalls++;
+
+                return 0;
+            }
+
+            protected function hasPublish(): bool
+            {
+                return true;
+            }
+
+            protected function publish(string $channel, string $event, string $payloadJson): int
+            {
+                $this->publishCalls++;
+
+                return 0;
+            }
+        };
+
+        $broadcaster->broadcast(['test-channel'], 'test-event', ['foo' => 'bar']);
+
+        $this->assertSame(1, $broadcaster->multiCalls);
+        $this->assertSame(0, $broadcaster->publishCalls);
+    }
+
     public function testNonBenchmarkAndFailedPayloadEncodingKeepExistingBehavior()
     {
         $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
