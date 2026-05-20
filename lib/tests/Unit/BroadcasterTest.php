@@ -24,6 +24,7 @@ class BroadcasterTest extends TestCase
         // Handle Laravel's magic getter $request->channel_name calling all()
         $request->shouldReceive('all')->andReturn(['channel_name' => 'private-test']);
         $request->shouldReceive('input')->with('channel_name')->andReturn('private-test');
+        $request->shouldReceive('input')->with('socket_id')->andReturn('1.1');
         $request->shouldReceive('user')->andReturn(null);
         // Handle direct property access on mock
         $request->shouldReceive('__get')->with('channel_name')->andReturn('private-test');
@@ -36,7 +37,7 @@ class BroadcasterTest extends TestCase
         $response = $broadcaster->auth($request);
 
         $this->assertIsArray($response);
-        $expectedSig = hash_hmac('sha256', 'private-test', 'super-secret');
+        $expectedSig = hash_hmac('sha256', '1.1:private-test', 'super-secret');
         $this->assertEquals('test-app:' . $expectedSig, $response['auth']);
     }
 
@@ -57,6 +58,7 @@ class BroadcasterTest extends TestCase
         $request = Mockery::mock(Request::class);
         $request->shouldReceive('all')->andReturn(['channel_name' => 'presence-chat']);
         $request->shouldReceive('input')->with('channel_name')->andReturn('presence-chat');
+        $request->shouldReceive('input')->with('socket_id')->andReturn('1.2');
         $request->shouldReceive('__get')->with('channel_name')->andReturn('presence-chat');
         $request->shouldReceive('user')->andReturn($user);
 
@@ -71,6 +73,9 @@ class BroadcasterTest extends TestCase
 
         $this->assertEquals('42', $channelData['user_id']);
         $this->assertEquals($userInfo, $channelData['user_info']);
+
+        $expectedSig = hash_hmac('sha256', '1.2:presence-chat:' . $response['channel_data'], 'super-secret');
+        $this->assertEquals('test-app:' . $expectedSig, $response['auth']);
     }
 
     public function testAuthenticateUser()

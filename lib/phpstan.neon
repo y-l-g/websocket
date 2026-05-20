@@ -4,6 +4,7 @@ parameters:
         - src/Http
         - src/Broadcaster.php
         - src/ServiceProvider.php
+        - src/Console/InstallCommand.php
         - src/Http/UserAuthController.php
     scanFiles:
         - websocket.stub.php

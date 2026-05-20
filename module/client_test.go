@@ -128,11 +128,18 @@ func (m *MockWSConnection) SetWriteDeadline(t time.Time) error {
 
 type MockAuthProvider struct{}
 
-func (m *MockAuthProvider) Authorize(client *Client, channel string) AuthResult {
+func (m *MockAuthProvider) Authorize(client *Client, channel string, auth string, channelData string) AuthResult {
 	if channel == "private-forbidden" {
 		return AuthResult{Allowed: false}
 	}
-	return AuthResult{Allowed: true, UserData: json.RawMessage(`{"user_id":"1"}`)}
+	if channelData != "" {
+		raw, _ := json.Marshal(map[string]string{
+			"auth":         auth,
+			"channel_data": channelData,
+		})
+		return AuthResult{Allowed: true, UserData: raw}
+	}
+	return AuthResult{Allowed: true, UserData: json.RawMessage(`{"auth":"test-app:mock_signature"}`)}
 }
 func (m *MockAuthProvider) AuthenticateUser(client *Client, authSig string, userData string) AuthResult {
 	return AuthResult{Allowed: true, UserData: json.RawMessage(userData)}

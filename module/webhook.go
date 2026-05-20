@@ -2,12 +2,14 @@ package websocket
 
 import (
 	"bytes"
+	"context"
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -20,6 +22,9 @@ type WebhookManager struct {
 	logger  *zap.Logger
 	metrics *Metrics
 	jobs    chan WebhookEvent
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
 }
 
 const (
@@ -43,17 +48,21 @@ func NewWebhookManager(logger *zap.Logger, url, secret string, metrics ...*Metri
 	if len(metrics) > 0 {
 		m = metrics[0]
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	wm := &WebhookManager{
 		url:     url,
 		secret:  secret,
 		logger:  logger,
 		metrics: m,
 		jobs:    make(chan WebhookEvent, defaultWebhookQueueSize),
+		ctx:     ctx,
+		cancel:  cancel,
 		client: &http.Client{
 			Timeout: 5 * time.Second,
 		},
 	}
 	if url != "" {
+		wm.wg.Add(1)
 		go wm.run()
 	}
 	return wm
@@ -66,10 +75,18 @@ func (wm *WebhookManager) Notify(eventName, channelName string) {
 	}
 
 	event := WebhookEvent{Name: eventName, Channel: channelName}
+	var done <-chan struct{}
+	if wm.ctx != nil {
+		done = wm.ctx.Done()
+	}
 	select {
 	case wm.jobs <- event:
 		if wm.metrics != nil {
 			wm.metrics.WebhookQueueDepth.Set(float64(len(wm.jobs)))
+		}
+	case <-done:
+		if wm.metrics != nil {
+			wm.metrics.WebhookDropped.WithLabelValues("closed").Inc()
 		}
 	default:
 		if wm.metrics != nil {
@@ -80,15 +97,21 @@ func (wm *WebhookManager) Notify(eventName, channelName string) {
 }
 
 func (wm *WebhookManager) run() {
-	for event := range wm.jobs {
-		if wm.metrics != nil {
-			wm.metrics.WebhookQueueDepth.Set(float64(len(wm.jobs)))
+	defer wm.wg.Done()
+	for {
+		select {
+		case event := <-wm.jobs:
+			if wm.metrics != nil {
+				wm.metrics.WebhookQueueDepth.Set(float64(len(wm.jobs)))
+			}
+			wm.deliver(wm.ctx, event)
+		case <-wm.ctx.Done():
+			return
 		}
-		wm.deliver(event)
 	}
 }
 
-func (wm *WebhookManager) deliver(event WebhookEvent) {
+func (wm *WebhookManager) deliver(ctx context.Context, event WebhookEvent) {
 	payload := WebhookPayload{
 		TimeMs: time.Now().UnixMilli(),
 		Events: []WebhookEvent{
@@ -118,10 +141,16 @@ func (wm *WebhookManager) deliver(event WebhookEvent) {
 				zap.Duration("backoff", backoff),
 				zap.String("event", event.Name),
 				zap.String("channel", event.Channel))
-			time.Sleep(backoff)
+			timer := time.NewTimer(backoff)
+			select {
+			case <-timer.C:
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			}
 		}
 
-		req, err := http.NewRequest("POST", wm.url, bytes.NewReader(jsonBytes))
+		req, err := http.NewRequestWithContext(ctx, "POST", wm.url, bytes.NewReader(jsonBytes))
 		if err != nil {
 			wm.logger.Error("Webhook: failed to create request", zap.Error(err))
 			return
@@ -152,4 +181,12 @@ func (wm *WebhookManager) deliver(event WebhookEvent) {
 		zap.Error(lastErr),
 		zap.String("event", event.Name),
 		zap.String("channel", event.Channel))
+}
+
+func (wm *WebhookManager) Close() {
+	if wm.cancel == nil {
+		return
+	}
+	wm.cancel()
+	wm.wg.Wait()
 }

@@ -14,9 +14,7 @@ RUN CGO_ENABLED=1 \
     --with github.com/dunglas/frankenphp@v1.12.3 \
     --with github.com/dunglas/frankenphp/caddy@v1.12.3 \
     --with github.com/dunglas/caddy-cbrotli@v1.0.1 \
-    --with github.com/y-l-g/scheduler/module@main \
-    --with github.com/y-l-g/websocket/module=/websocket \
-    --with github.com/y-l-g/queue/module@main
+    --with github.com/y-l-g/websocket/module=/websocket
 
 
 FROM serversideup/php:8.5.6-frankenphp-trixie

@@ -51,6 +51,56 @@ func (s *HubShard) enqueueBroadcast(msg *BroadcastMessage) {
 	}
 }
 
+func (s *HubShard) EnqueueSubscribe(sub *Subscription) bool {
+	return s.enqueueControl("shard_subscribe", func() bool {
+		select {
+		case s.subscribe <- sub:
+			return true
+		case <-s.ctx.Done():
+			return false
+		default:
+			return false
+		}
+	})
+}
+
+func (s *HubShard) EnqueueUnsubscribe(sub *Subscription) bool {
+	return s.enqueueControl("shard_unsubscribe", func() bool {
+		select {
+		case s.unsubscribe <- sub:
+			return true
+		case <-s.ctx.Done():
+			return false
+		default:
+			return false
+		}
+	})
+}
+
+func (s *HubShard) EnqueueClientMessage(msg *ClientMessageWrapper) bool {
+	return s.enqueueControl("shard_client_message", func() bool {
+		select {
+		case s.clientMsg <- msg:
+			return true
+		case <-s.ctx.Done():
+			return false
+		default:
+			return false
+		}
+	})
+}
+
+func (s *HubShard) enqueueControl(queue string, send func() bool) bool {
+	if send() {
+		return true
+	}
+	if s.metrics != nil {
+		s.metrics.ControlQueueDropped.WithLabelValues(s.appID, queue).Inc()
+	}
+	s.logger.Warn("Shard: control queue full", zap.Int("shard", s.id), zap.String("queue", queue))
+	return false
+}
+
 func (s *HubShard) Run() {
 	for {
 		select {

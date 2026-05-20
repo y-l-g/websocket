@@ -61,8 +61,11 @@ func TestPresenceParsing(t *testing.T) {
 
 	sm.Subscribe(client2, channel, badAuth)
 
-	if _, ok := sm.clients[client2][channel]; !ok {
-		t.Error("Expected client2 to be in clients map even with invalid auth")
+	if chans, ok := sm.clients[client2]; ok && chans[channel] {
+		t.Error("Expected client2 not to be subscribed with invalid auth")
+	}
+	if sm.channels[channel][client2] {
+		t.Error("Expected client2 not to be in channel map with invalid auth")
 	}
 }
 

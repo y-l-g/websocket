@@ -51,6 +51,8 @@ class Broadcaster extends BaseBroadcaster
 
         $stringChannelName = is_string($channelNameInput) ? $channelNameInput : '';
         $channelName = $this->normalizeChannelName($stringChannelName);
+        $socketIdInput = $request->input('socket_id');
+        $socketId = is_string($socketIdInput) ? $socketIdInput : '';
 
         try {
             $result = $this->verifyUserCanAccessChannel($request, $channelName);
@@ -58,9 +60,7 @@ class Broadcaster extends BaseBroadcaster
             throw $e;
         }
 
-        $response = [
-            'auth' => $this->signChannelAuth($stringChannelName),
-        ];
+        $channelDataJson = null;
 
         if (str_starts_with($stringChannelName, 'presence-')) {
             $user = $request->user();
@@ -81,7 +81,18 @@ class Broadcaster extends BaseBroadcaster
                 'user_info' => $result,
             ];
 
-            $response['channel_data'] = json_encode($channelData);
+            $channelDataJson = json_encode($channelData);
+            if ($channelDataJson === false) {
+                $channelDataJson = '{}';
+            }
+        }
+
+        $response = [
+            'auth' => $this->signChannelAuth($socketId, $stringChannelName, $channelDataJson),
+        ];
+
+        if ($channelDataJson !== null) {
+            $response['channel_data'] = $channelDataJson;
         }
 
         return $response;
@@ -261,9 +272,14 @@ class Broadcaster extends BaseBroadcaster
         return json_encode($payload);
     }
 
-    protected function signChannelAuth(string $channelName): string
+    protected function signChannelAuth(string $socketId, string $channelName, ?string $channelData = null): string
     {
-        $signature = hash_hmac('sha256', $channelName, $this->secret);
+        $stringToSign = $socketId . ':' . $channelName;
+        if ($channelData !== null) {
+            $stringToSign .= ':' . $channelData;
+        }
+
+        $signature = hash_hmac('sha256', $stringToSign, $this->secret);
         return $this->appId . ':' . $signature;
     }
 }

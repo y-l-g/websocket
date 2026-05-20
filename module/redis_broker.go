@@ -110,7 +110,13 @@ func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, 
 					zap.Error(err),
 					zap.Duration("backoff", sleepDuration))
 
-				time.Sleep(sleepDuration)
+				timer := time.NewTimer(sleepDuration)
+				select {
+				case <-timer.C:
+				case <-ctx.Done():
+					timer.Stop()
+					return
+				}
 				attempt++
 				continue
 			}

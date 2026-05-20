@@ -61,8 +61,13 @@ type AuthResult struct {
 }
 
 type AuthProvider interface {
-	Authorize(client *Client, channel string) AuthResult
+	Authorize(client *Client, channel string, auth string, channelData string) AuthResult
 	AuthenticateUser(client *Client, authSig string, userData string) AuthResult
+}
+
+type channelAuthResponse struct {
+	Auth        string `json:"auth"`
+	ChannelData string `json:"channel_data,omitempty"`
 }
 
 type WorkerAuthProvider struct {
@@ -124,16 +129,11 @@ func (ap *WorkerAuthProvider) AuthenticateUser(client *Client, authSig string, u
 		ap.logger.Warn("Auth: user signature app id mismatch", zap.String("id", client.ID))
 		return AuthResult{Allowed: false}
 	}
-	signature := parts[1]
 
 	// String to sign: socket_id + "::user::" + user_data
 	toSign := fmt.Sprintf("%s::user::%s", client.ID, userData)
 
-	mac := hmac.New(sha256.New, []byte(ap.secret))
-	mac.Write([]byte(toSign))
-	expectedSig := hex.EncodeToString(mac.Sum(nil))
-
-	if hmac.Equal([]byte(signature), []byte(expectedSig)) {
+	if validSignature(ap.secret, parts[1], toSign) {
 		// Valid
 		return AuthResult{Allowed: true, UserData: json.RawMessage(userData)}
 	}
@@ -142,7 +142,11 @@ func (ap *WorkerAuthProvider) AuthenticateUser(client *Client, authSig string, u
 	return AuthResult{Allowed: false}
 }
 
-func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResult {
+func (ap *WorkerAuthProvider) Authorize(client *Client, channel string, auth string, channelData string) AuthResult {
+	if auth != "" {
+		return ap.authorizeProvidedSignature(client, channel, auth, channelData)
+	}
+
 	select {
 	case ap.sem <- struct{}{}:
 		defer func() { <-ap.sem }()
@@ -169,6 +173,30 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string) AuthResu
 	}
 
 	return result
+}
+
+func (ap *WorkerAuthProvider) authorizeProvidedSignature(client *Client, channel string, auth string, channelData string) AuthResult {
+	if strings.HasPrefix(channel, "presence-") && channelData == "" {
+		if ap.metrics != nil {
+			ap.metrics.AuthFailures.WithLabelValues("missing_channel_data").Inc()
+		}
+		ap.logger.Warn("Auth: presence channel auth missing channel_data", zap.String("id", client.ID), zap.String("channel", channel))
+		return AuthResult{Allowed: false}
+	}
+
+	if !ap.validateChannelSignature(client.ID, channel, auth, channelData) {
+		if ap.metrics != nil {
+			ap.metrics.AuthFailures.WithLabelValues("invalid_signature").Inc()
+		}
+		ap.logger.Warn("Auth: channel signature mismatch", zap.String("id", client.ID), zap.String("channel", channel))
+		return AuthResult{Allowed: false}
+	}
+
+	raw, err := json.Marshal(channelAuthResponse{Auth: auth, ChannelData: channelData})
+	if err != nil {
+		return AuthResult{Allowed: false}
+	}
+	return AuthResult{Allowed: true, UserData: raw}
 }
 
 func (ap *WorkerAuthProvider) doAuthorize(client *Client, channel string) (AuthResult, error) {
@@ -242,5 +270,65 @@ func (ap *WorkerAuthProvider) doAuthorize(client *Client, channel string) (AuthR
 	body := make([]byte, rr.body.Len())
 	copy(body, rr.body.Bytes())
 
-	return AuthResult{Allowed: true, UserData: body}, nil
+	result := ap.validateWorkerAuthResponse(client, channel, body)
+	return result, nil
+}
+
+func (ap *WorkerAuthProvider) validateWorkerAuthResponse(client *Client, channel string, body []byte) AuthResult {
+	var response channelAuthResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		if ap.metrics != nil {
+			ap.metrics.AuthFailures.WithLabelValues("invalid_response_json").Inc()
+		}
+		ap.logger.Warn("Auth: worker returned invalid JSON", zap.String("id", client.ID), zap.Error(err))
+		return AuthResult{Allowed: false}
+	}
+
+	if response.Auth == "" {
+		if ap.metrics != nil {
+			ap.metrics.AuthFailures.WithLabelValues("missing_signature").Inc()
+		}
+		ap.logger.Warn("Auth: worker response missing auth signature", zap.String("id", client.ID), zap.String("channel", channel))
+		return AuthResult{Allowed: false}
+	}
+
+	if strings.HasPrefix(channel, "presence-") && response.ChannelData == "" {
+		if ap.metrics != nil {
+			ap.metrics.AuthFailures.WithLabelValues("missing_channel_data").Inc()
+		}
+		ap.logger.Warn("Auth: worker presence response missing channel_data", zap.String("id", client.ID), zap.String("channel", channel))
+		return AuthResult{Allowed: false}
+	}
+
+	if !ap.validateChannelSignature(client.ID, channel, response.Auth, response.ChannelData) {
+		if ap.metrics != nil {
+			ap.metrics.AuthFailures.WithLabelValues("invalid_signature").Inc()
+		}
+		ap.logger.Warn("Auth: worker response signature mismatch", zap.String("id", client.ID), zap.String("channel", channel))
+		return AuthResult{Allowed: false}
+	}
+
+	return AuthResult{Allowed: true, UserData: body}
+}
+
+func (ap *WorkerAuthProvider) validateChannelSignature(socketID, channel, auth, channelData string) bool {
+	parts := strings.Split(auth, ":")
+	if len(parts) != 2 || parts[0] != ap.appID {
+		return false
+	}
+	return validSignature(ap.secret, parts[1], channelStringToSign(socketID, channel, channelData))
+}
+
+func channelStringToSign(socketID, channel, channelData string) string {
+	if channelData == "" {
+		return socketID + ":" + channel
+	}
+	return socketID + ":" + channel + ":" + channelData
+}
+
+func validSignature(secret, signature, stringToSign string) bool {
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(stringToSign))
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+	return hmac.Equal([]byte(signature), []byte(expectedSig))
 }

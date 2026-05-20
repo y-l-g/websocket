@@ -21,6 +21,7 @@ const (
 	DefaultClientMsgRateBurst = 20
 	DefaultBrokerQueueSize    = 1024
 	DefaultShardQueueSize     = 1024
+	DefaultShutdownTimeout    = 10 * time.Second
 )
 
 var (
@@ -111,6 +112,9 @@ type Hub struct {
 	writeBurstSize     int
 	clientMsgRateLimit float64
 	clientMsgRateBurst int
+	shutdownTimeout    time.Duration
+	healthy            atomic.Bool
+	healthErr          atomic.Value
 
 	// Synchronization
 	clientsMu sync.RWMutex
@@ -155,6 +159,7 @@ type DeliveryConfig struct {
 	EnableCompression  bool
 	BrokerQueueSize    int
 	ShardQueueSize     int
+	ShutdownTimeout    time.Duration
 }
 
 func DefaultDeliveryConfig() DeliveryConfig {
@@ -166,6 +171,7 @@ func DefaultDeliveryConfig() DeliveryConfig {
 		EnableCompression:  false,
 		BrokerQueueSize:    DefaultBrokerQueueSize,
 		ShardQueueSize:     DefaultShardQueueSize,
+		ShutdownTimeout:    DefaultShutdownTimeout,
 	}
 }
 
@@ -188,6 +194,9 @@ func (c DeliveryConfig) withDefaults() DeliveryConfig {
 	}
 	if c.ShardQueueSize <= 0 {
 		c.ShardQueueSize = defaults.ShardQueueSize
+	}
+	if c.ShutdownTimeout <= 0 {
+		c.ShutdownTimeout = defaults.ShutdownTimeout
 	}
 	return c
 }
@@ -224,6 +233,7 @@ func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metr
 		writeBurstSize:     delivery.WriteBurstSize,
 		clientMsgRateLimit: delivery.ClientMsgRateLimit,
 		clientMsgRateBurst: delivery.ClientMsgRateBurst,
+		shutdownTimeout:    delivery.ShutdownTimeout,
 		done:               make(chan struct{}),
 		clientMessage:      make(chan *ClientMessageWrapper, delivery.ShardQueueSize),
 		subscribe:          make(chan *Subscription, delivery.ShardQueueSize),
@@ -247,7 +257,7 @@ func (h *Hub) getShard(key string) *HubShard {
 	return h.shards[idx]
 }
 
-func (h *Hub) Register(c *Client) {
+func (h *Hub) Register(c *Client) bool {
 	if h.conns.Load() >= h.maxConnections {
 		h.logger.Warn("Hub: max connections reached, rejecting", zap.String("id", c.ID))
 
@@ -257,7 +267,7 @@ func (h *Hub) Register(c *Client) {
 		// Best effort write control
 		_ = c.conn.WriteControl(websocket.CloseMessage, msg, deadline)
 		_ = c.conn.Close()
-		return
+		return false
 	}
 
 	h.clientsMu.Lock()
@@ -282,6 +292,7 @@ func (h *Hub) Register(c *Client) {
 	msg, _ := json.Marshal(payload)
 
 	c.Send(msg)
+	return true
 }
 
 func (h *Hub) Unregister(c *Client) {
@@ -301,6 +312,11 @@ func (h *Hub) Unregister(c *Client) {
 			select {
 			case h.shards[i].cleanup <- c:
 			case <-h.ctx.Done():
+			case <-time.After(100 * time.Millisecond):
+				if h.metrics != nil {
+					h.metrics.ControlQueueDropped.WithLabelValues(h.AppID, "cleanup").Inc()
+				}
+				h.logger.Warn("Hub: cleanup queue full", zap.Int("shard", i), zap.String("id", c.ID))
 			}
 		}
 	}
@@ -312,11 +328,64 @@ func (h *Hub) Wait() {
 	<-h.done
 }
 
-func (h *Hub) Authorize(client *Client, channel string) AuthResult {
+func (h *Hub) Authorize(client *Client, channel string, auth string, channelData string) AuthResult {
 	if len(channel) > protocol.MaxChannelLength {
 		return AuthResult{Allowed: false}
 	}
-	return h.auth.Authorize(client, channel)
+	if h.auth == nil {
+		return AuthResult{Allowed: false}
+	}
+	return h.auth.Authorize(client, channel, auth, channelData)
+}
+
+func (h *Hub) EnqueueSubscribe(sub *Subscription) bool {
+	return h.enqueueControl("subscribe", func() bool {
+		select {
+		case h.subscribe <- sub:
+			return true
+		case <-h.ctx.Done():
+			return false
+		default:
+			return false
+		}
+	})
+}
+
+func (h *Hub) EnqueueUnsubscribe(sub *Subscription) bool {
+	return h.enqueueControl("unsubscribe", func() bool {
+		select {
+		case h.unsubscribe <- sub:
+			return true
+		case <-h.ctx.Done():
+			return false
+		default:
+			return false
+		}
+	})
+}
+
+func (h *Hub) EnqueueClientMessage(msg *ClientMessageWrapper) bool {
+	return h.enqueueControl("client_message", func() bool {
+		select {
+		case h.clientMessage <- msg:
+			return true
+		case <-h.ctx.Done():
+			return false
+		default:
+			return false
+		}
+	})
+}
+
+func (h *Hub) enqueueControl(queue string, send func() bool) bool {
+	if send() {
+		return true
+	}
+	if h.metrics != nil {
+		h.metrics.ControlQueueDropped.WithLabelValues(h.AppID, queue).Inc()
+	}
+	h.logger.Warn("Hub: control queue full", zap.String("queue", queue), zap.String("app_id", h.AppID))
+	return false
 }
 
 func (h *Hub) Publish(channel, event, data string) bool {
@@ -456,19 +525,41 @@ func publishToActiveHubs(hubs []*Hub, channel, event, data string) PublishStatus
 	return status
 }
 
+func (h *Hub) IsHealthy() bool {
+	return h.healthy.Load()
+}
+
+func (h *Hub) HealthError() string {
+	if value := h.healthErr.Load(); value != nil {
+		if msg, ok := value.(string); ok {
+			return msg
+		}
+	}
+	return ""
+}
+
+func (h *Hub) setHealth(healthy bool, err string) {
+	h.healthy.Store(healthy)
+	h.healthErr.Store(err)
+}
+
 func (h *Hub) Run() {
 	defer close(h.done)
 	h.logger.Info("Hub: started", zap.String("app_id", h.AppID), zap.Int("shards", h.numShards))
 
 	brokerStream, err := h.broker.Subscribe(h.ctx)
 	if err != nil {
-		h.logger.Fatal("Hub: failed to subscribe to broker", zap.Error(err))
+		h.setHealth(false, "broker_subscribe_failed")
+		h.logger.Error("Hub: failed to subscribe to broker", zap.Error(err))
+		return
 	}
+	h.setHealth(true, "")
 
 	for {
 		select {
 		case msg, ok := <-brokerStream:
 			if !ok {
+				h.setHealth(false, "broker_stream_closed")
 				h.logger.Warn("Hub: broker stream closed")
 				return
 			}
@@ -491,20 +582,27 @@ func (h *Hub) Run() {
 		case sub := <-h.subscribe:
 			if len(sub.Channel) <= protocol.MaxChannelLength {
 				shard := h.getShard(sub.Channel)
-				shard.subscribe <- sub
+				if !shard.EnqueueSubscribe(sub) {
+					sub.Client.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
+				}
 			}
 
 		case sub := <-h.unsubscribe:
 			if len(sub.Channel) <= protocol.MaxChannelLength {
 				shard := h.getShard(sub.Channel)
-				shard.unsubscribe <- sub
+				if !shard.EnqueueUnsubscribe(sub) {
+					sub.Client.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
+				}
 			}
 
 		case cMsg := <-h.clientMessage:
 			shard := h.getShard(cMsg.Channel)
-			shard.clientMsg <- cMsg
+			if !shard.EnqueueClientMessage(cMsg) {
+				cMsg.Client.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
+			}
 
 		case <-h.ctx.Done():
+			h.setHealth(false, "shutting_down")
 			h.logger.Info("Hub: shutting down, draining connections...")
 			_ = h.broker.Close()
 
@@ -516,8 +614,18 @@ func (h *Hub) Run() {
 			}
 			h.clientsMu.Unlock()
 
-			h.wg.Wait()
-			h.logger.Info("Hub: shutdown complete")
+			drained := make(chan struct{})
+			go func() {
+				h.wg.Wait()
+				close(drained)
+			}()
+
+			select {
+			case <-drained:
+				h.logger.Info("Hub: shutdown complete")
+			case <-time.After(h.shutdownTimeout):
+				h.logger.Warn("Hub: shutdown timeout reached", zap.Int64("remaining_connections", h.conns.Load()), zap.Duration("timeout", h.shutdownTimeout))
+			}
 			return
 		}
 	}

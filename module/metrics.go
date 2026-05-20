@@ -16,8 +16,9 @@ type Metrics struct {
 	AuthFailures         *prometheus.CounterVec
 	DroppedMessages      *prometheus.CounterVec
 	BrokerDropped        *prometheus.CounterVec
-	PublishFailures      *prometheus.CounterVec
-	WebhookQueueDepth    prometheus.Gauge
+		PublishFailures      *prometheus.CounterVec
+		ControlQueueDropped  *prometheus.CounterVec
+		WebhookQueueDepth    prometheus.Gauge
 	WebhookDropped       *prometheus.CounterVec
 	PublishDuration      *prometheus.HistogramVec
 	BrokerToHubDelay     prometheus.Histogram
@@ -76,12 +77,17 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "broker_dropped_messages_total",
 			Help:      "Number of messages dropped by the internal broker due to backpressure",
 		}, []string{"app_id", "reason"}),
-		PublishFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
-			Namespace: "pogo_websocket",
-			Name:      "publish_failures_total",
-			Help:      "Number of failed publish attempts by reason",
-		}, []string{"app_id", "reason"}),
-		WebhookQueueDepth: prometheus.NewGauge(prometheus.GaugeOpts{
+			PublishFailures: prometheus.NewCounterVec(prometheus.CounterOpts{
+				Namespace: "pogo_websocket",
+				Name:      "publish_failures_total",
+				Help:      "Number of failed publish attempts by reason",
+			}, []string{"app_id", "reason"}),
+			ControlQueueDropped: prometheus.NewCounterVec(prometheus.CounterOpts{
+				Namespace: "pogo_websocket",
+				Name:      "control_queue_dropped_total",
+				Help:      "Number of control messages rejected because internal queues were full",
+			}, []string{"app_id", "queue"}),
+			WebhookQueueDepth: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "pogo_websocket",
 			Name:      "webhook_queue_depth",
 			Help:      "Current number of queued webhook notifications",
@@ -159,8 +165,9 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		_ = reg.Register(m.BreakerTripped)
 		_ = reg.Register(m.AuthFailures)
 		_ = reg.Register(m.DroppedMessages)
-		_ = reg.Register(m.BrokerDropped)
-		_ = reg.Register(m.PublishFailures)
+			_ = reg.Register(m.BrokerDropped)
+			_ = reg.Register(m.PublishFailures)
+			_ = reg.Register(m.ControlQueueDropped)
 		_ = reg.Register(m.WebhookQueueDepth)
 		_ = reg.Register(m.WebhookDropped)
 		_ = reg.Register(m.PublishDuration)

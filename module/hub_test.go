@@ -83,6 +83,16 @@ func TestHubSharding(t *testing.T) {
 	}
 }
 
+type SubscribeFailBroker struct{}
+
+func (m *SubscribeFailBroker) Publish(ctx context.Context, msg *BroadcastMessage) error {
+	return nil
+}
+func (m *SubscribeFailBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, error) {
+	return nil, errors.New("subscribe failed")
+}
+func (m *SubscribeFailBroker) Close() error { return nil }
+
 func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 	t.Setenv("POGO_WS_HOT_PATH_METRICS", "true")
 
@@ -122,6 +132,73 @@ func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 	brokerSum := metricHistogramSum(t, metrics.PublishDuration.WithLabelValues("broker"))
 	if totalSum < brokerSum {
 		t.Fatalf("Expected publish total duration %.9f to be >= broker duration %.9f", totalSum, brokerSum)
+	}
+}
+
+func TestHubControlQueueFullReturnsFalse(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	delivery := DefaultDeliveryConfig()
+	delivery.ShardQueueSize = 1
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, &MockBroker{}, 10000, 1, DefaultPingPeriod, delivery)
+	hub.subscribe <- &Subscription{Channel: "held"}
+
+	if hub.EnqueueSubscribe(&Subscription{Client: &Client{ID: "client"}, Channel: "public-test"}) {
+		t.Fatal("Expected enqueue to fail when subscribe queue is full")
+	}
+	if got := counterValue(t, metrics.ControlQueueDropped.WithLabelValues("test-app", "subscribe")); got != 1 {
+		t.Fatalf("Expected one control queue drop, got %d", got)
+	}
+}
+
+func TestHubSubscribeFailureMarksUnhealthy(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, &SubscribeFailBroker{}, 10000, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+	go hub.Run()
+	hub.Wait()
+
+	if hub.IsHealthy() {
+		t.Fatal("Expected hub to be unhealthy after broker subscribe failure")
+	}
+	if hub.HealthError() != "broker_subscribe_failed" {
+		t.Fatalf("HealthError = %q, want broker_subscribe_failed", hub.HealthError())
+	}
+}
+
+func TestHubShutdownTimeoutBoundsWait(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	delivery := DefaultDeliveryConfig()
+	delivery.ShutdownTimeout = 10 * time.Millisecond
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, &MockBroker{}, 10000, 1, DefaultPingPeriod, delivery)
+	go hub.Run()
+
+	client := &Client{
+		ID:     "stuck-client",
+		hub:    hub,
+		conn:   NewMockWSConnection(),
+		send:   make(chan any, 1),
+		ctx:    ctx,
+		cancel: cancel,
+	}
+	if !hub.Register(client) {
+		t.Fatal("Expected client registration to succeed")
+	}
+
+	start := time.Now()
+	cancel()
+	hub.Wait()
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("Shutdown wait was not bounded, elapsed=%s", elapsed)
 	}
 }
 

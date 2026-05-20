@@ -15,7 +15,7 @@ class InstallCommand extends Command
 
     protected $description = 'Install Pogo WebSocket engine';
 
-    public function handle()
+    public function handle(): int
     {
         $this->components->info('🐘 Installing Pogo WebSocket Engine...');
 
@@ -35,9 +35,11 @@ class InstallCommand extends Command
             'Run [npm run build] to compile the frontend.',
             'Restart FrankenPHP to load the new worker/config.',
         ]);
+
+        return self::SUCCESS;
     }
 
-    protected function installOctaneWorker()
+    protected function installOctaneWorker(): void
     {
         $this->call('octane:install', ['--server' => 'frankenphp']);
 
@@ -46,12 +48,12 @@ class InstallCommand extends Command
         }
     }
 
-    protected function publishConfiguration()
+    protected function publishConfiguration(): void
     {
         $this->call('config:publish', ['name' => 'broadcasting']);
     }
 
-    protected function installChannelsRoutes()
+    protected function installChannelsRoutes(): void
     {
         $path = $this->laravel->basePath('routes/channels.php');
 
@@ -72,7 +74,7 @@ class InstallCommand extends Command
         (new Filesystem())->put($path, $stub);
     }
 
-    protected function enableBroadcasting()
+    protected function enableBroadcasting(): void
     {
         $appBootstrapPath = $this->laravel->bootstrapPath('app.php');
         $filesystem = new Filesystem();
@@ -102,7 +104,7 @@ class InstallCommand extends Command
         }
     }
 
-    protected function configureBroadcastingDriver()
+    protected function configureBroadcastingDriver(): void
     {
         $configPath = $this->laravel->configPath('broadcasting.php');
         $filesystem = new Filesystem();
@@ -126,16 +128,19 @@ class InstallCommand extends Command
 
             CONFIG;
 
-        $content = preg_replace(
+        $updatedContent = preg_replace(
             "/'connections' => \[\n/",
             "'connections' => [\n" . $driverConfig,
             $content
         );
+        if ($updatedContent === null) {
+            return;
+        }
 
-        $filesystem->put($configPath, $content);
+        $filesystem->put($configPath, $updatedContent);
     }
 
-    protected function updateEnvironmentFile()
+    protected function updateEnvironmentFile(): void
     {
         $envPath = $this->laravel->basePath('.env');
 
@@ -153,7 +158,7 @@ class InstallCommand extends Command
         ], $envPath);
     }
 
-    protected function installFrontendScaffolding()
+    protected function installFrontendScaffolding(): void
     {
         $filesystem = new Filesystem();
         $resourcePath = $this->laravel->resourcePath('js');
@@ -181,6 +186,7 @@ class InstallCommand extends Command
                     forceTLS: false,
                     disableStats: true,
                     enabledTransports: ['ws', 'wss'],
+                    authEndpoint: "/pogo/auth",
                     userAuthentication: {
                         endpoint: "/pogo/user-auth"
                     }
@@ -207,7 +213,7 @@ class InstallCommand extends Command
         }
     }
 
-    protected function installNodeDependencies()
+    protected function installNodeDependencies(): void
     {
         if (!confirm('Run Laravel broadcasting scaffolding (npm install)?', default: true)) {
             return;

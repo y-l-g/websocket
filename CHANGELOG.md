@@ -8,3 +8,6 @@
   Redis Pub/Sub clustering, webhooks, and Prometheus metrics.
 - Current limits: experimental API, topology-specific benchmark results, and no
   production replacement claim yet.
+- Tightens presence subscription validation, standard Pusher channel signatures,
+  bounded overload behavior, context-aware webhook shutdown, and explicit
+  at-most-once delivery documentation.

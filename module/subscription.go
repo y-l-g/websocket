@@ -72,12 +72,28 @@ func (sm *SubscriptionManager) fanout(clients map[*Client]bool, payload any) {
 	}
 }
 
-func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userData json.RawMessage) {
+func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userData json.RawMessage) bool {
+	if strings.HasPrefix(channel, protocol.ChannelPrefixPresence) {
+		return sm.handlePresenceSubscribe(client, channel, userData)
+	}
+
+	sm.addSubscription(client, channel)
+	msg, _ := json.Marshal(map[string]interface{}{
+		"event":   protocol.EventSubscriptionSucceeded,
+		"channel": channel,
+		"data":    "{}",
+	})
+	client.Send(msg)
+	return true
+}
+
+func (sm *SubscriptionManager) addSubscription(client *Client, channel string) bool {
 	isNewChannel := false
 	if _, ok := sm.channels[channel]; !ok {
 		sm.channels[channel] = make(map[*Client]bool)
 		isNewChannel = true
 	}
+	_, alreadySubscribed := sm.channels[channel][client]
 	sm.channels[channel][client] = true
 
 	if _, ok := sm.clients[client]; !ok {
@@ -85,22 +101,14 @@ func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userDat
 	}
 	sm.clients[client][channel] = true
 
-	sm.metrics.Subscriptions.Inc()
+	if !alreadySubscribed && sm.metrics != nil {
+		sm.metrics.Subscriptions.Inc()
+	}
 
 	if isNewChannel && sm.webhook != nil {
 		sm.webhook.Notify("channel_occupied", channel)
 	}
-
-	if strings.HasPrefix(channel, protocol.ChannelPrefixPresence) {
-		sm.handlePresenceSubscribe(client, channel, userData)
-	} else {
-		msg, _ := json.Marshal(map[string]interface{}{
-			"event":   protocol.EventSubscriptionSucceeded,
-			"channel": channel,
-			"data":    "{}",
-		})
-		client.Send(msg)
-	}
+	return alreadySubscribed
 }
 
 func (sm *SubscriptionManager) BroadcastToOthers(sender *Client, channel, event string, data json.RawMessage) {
@@ -144,28 +152,28 @@ type PresenceChannelData struct {
 	UserInfo json.RawMessage `json:"user_info"`
 }
 
-func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel string, userData json.RawMessage) {
+func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel string, userData json.RawMessage) bool {
 	var authResp PresenceAuthResponse
 	if err := json.Unmarshal(userData, &authResp); err != nil {
 		sm.logger.Warn("Presence: invalid auth response", zap.String("id", client.ID))
-		return
+		return false
 	}
 
 	if authResp.ChannelData == "" {
 		sm.logger.Warn("Presence: missing channel_data", zap.String("id", client.ID))
-		return
+		return false
 	}
 
 	var chanData PresenceChannelData
 	if err := json.Unmarshal([]byte(authResp.ChannelData), &chanData); err != nil {
 		sm.logger.Warn("Presence: invalid channel_data JSON", zap.String("id", client.ID))
-		return
+		return false
 	}
 
 	userID := strings.Trim(string(chanData.UserID), "\"")
 	if userID == "" || userID == "null" {
 		sm.logger.Warn("Presence: missing user_id", zap.String("id", client.ID))
-		return
+		return false
 	}
 
 	userInfo := chanData.UserInfo
@@ -174,6 +182,7 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 	}
 
 	member := Member{UserID: userID, UserInfo: userInfo}
+	sm.addSubscription(client, channel)
 
 	if _, ok := sm.presence[channel]; !ok {
 		sm.presence[channel] = make(map[string]Member)
@@ -231,6 +240,7 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 			}
 		}
 	}
+	return true
 }
 
 func (sm *SubscriptionManager) Unsubscribe(client *Client, channel string) {

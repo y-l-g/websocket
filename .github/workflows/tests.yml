@@ -42,8 +42,10 @@ jobs:
           sudo apt-get install -y libsodium-dev libargon2-dev libonig-dev libxml2-dev
           sudo apt-get install --reinstall -y libbrotli-dev
 
-      - name: Install xcaddy
-        run: go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+      - name: Install Go tools
+        run: |
+          go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
 
       - name: Configure CGO flags
         run: |
@@ -69,12 +71,28 @@ jobs:
           cd module
           go test -v -race .
           go test -v -race ./tests/integration/...
+          govulncheck ./...
 
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-progress
+
+      - name: Validate PHP package
+        run: |
+          composer validate --strict
+          composer audit --locked
 
       - name: Run PHP tests
         run: ./frankenphp-test php-cli ./vendor/bin/phpunit -c lib/phpunit.xml lib
 
       - name: Run PHPStan
         run: ./vendor/bin/phpstan analyze --configuration=lib/phpstan.neon --error-format=github
+
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Build Docker image
+        run: docker build .

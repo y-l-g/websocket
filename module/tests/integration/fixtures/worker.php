@@ -29,19 +29,25 @@ $handler = function () {
     }
 
     // 3. Mock Auth Response
+    $socketId = $request['socket_id'] ?? '';
+    $secret = 'super-secret-key';
+
     if (str_starts_with($channel, 'presence-')) {
         $userId = 'user_' . ($request['socket_id'] ?? 'unknown');
+        $channelData = json_encode([
+            'user_id' => $userId,
+            'user_info' => ['name' => 'Test User ' . $userId],
+        ]);
+        $signature = hash_hmac('sha256', $socketId . ':' . $channel . ':' . $channelData, $secret);
 
         echo json_encode([
-            'auth' => 'test-app:mock_signature',
-            'channel_data' => json_encode([
-                'user_id' => $userId,
-                'user_info' => ['name' => 'Test User ' . $userId],
-            ]),
+            'auth' => 'test-app:' . $signature,
+            'channel_data' => $channelData,
         ]);
     } else {
+        $signature = hash_hmac('sha256', $socketId . ':' . $channel, $secret);
         echo json_encode([
-            'auth' => 'test-app:mock_signature',
+            'auth' => 'test-app:' . $signature,
         ]);
     }
 };

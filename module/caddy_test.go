@@ -101,6 +101,58 @@ func TestWebsocketModuleUsesCanonicalAppSecretEnv(t *testing.T) {
 	}
 }
 
+func TestWebsocketModuleSecretPrecedence(t *testing.T) {
+	t.Setenv("WS_APP_SECRET", "global-secret")
+	t.Setenv("WS_APP_SECRET_POGO_APP", "app-secret")
+
+	m := WebsocketModule{
+		AppID:      "pogo-app",
+		AuthPath:   "/pogo/auth",
+		AuthScript: "/tmp/auth.php",
+	}
+
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+	if m.AppSecret != "app-secret" {
+		t.Fatalf("AppSecret = %q, want app-secret", m.AppSecret)
+	}
+
+	explicit := WebsocketModule{
+		AppID:      "pogo-app",
+		AuthPath:   "/pogo/auth",
+		AuthScript: "/tmp/auth.php",
+		AppSecret:  "explicit-secret",
+	}
+	if err := explicit.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+	if explicit.AppSecret != "explicit-secret" {
+		t.Fatalf("explicit AppSecret = %q, want explicit-secret", explicit.AppSecret)
+	}
+}
+
+func TestWebsocketModuleParsesShutdownTimeout(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`pogo_websocket {
+		app_id pogo-app
+		auth_path /pogo/auth
+		auth_script /tmp/auth.php
+		app_secret test-secret
+		shutdown_timeout 250ms
+	}`)
+
+	var m WebsocketModule
+	if err := m.UnmarshalCaddyfile(d); err != nil {
+		t.Fatalf("UnmarshalCaddyfile returned error: %v", err)
+	}
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+	if m.shutdownTimeout.String() != "250ms" {
+		t.Fatalf("shutdownTimeout = %s, want 250ms", m.shutdownTimeout)
+	}
+}
+
 func TestWebsocketModuleProtocolParsing(t *testing.T) {
 	for _, proto := range []string{"5", "7", "10"} {
 		if !isSupportedProtocol(proto) {
@@ -191,6 +243,36 @@ func TestWebsocketModuleCheckOrigin(t *testing.T) {
 				t.Fatalf("checkOrigin = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestWebsocketModuleHandshakeLimiterIsPerRemoteAddr(t *testing.T) {
+	m := WebsocketModule{
+		HandshakeRate:  1,
+		HandshakeBurst: 1,
+		limiters:       make(map[string]*remoteHandshakeLimiter),
+	}
+
+	req1, err := http.NewRequest(http.MethodGet, "https://example.com/app/test", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req1.RemoteAddr = "192.0.2.10:1234"
+
+	req2, err := http.NewRequest(http.MethodGet, "https://example.com/app/test", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req2.RemoteAddr = "192.0.2.11:1234"
+
+	if !m.allowHandshake(req1) {
+		t.Fatal("Expected first request from remote 1 to pass")
+	}
+	if m.allowHandshake(req1) {
+		t.Fatal("Expected second immediate request from remote 1 to be limited")
+	}
+	if !m.allowHandshake(req2) {
+		t.Fatal("Expected request from a different remote to pass")
 	}
 }
 

@@ -22,14 +22,14 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
 
 ## Features
 
-- **Pusher Protocol v7 Compliant:** Supports Private & Presence channels, and User Authentication.
+- **Pusher-Compatible Protocol Subset:** Supports public, private, and presence channels, client events, and user authentication for Echo/Pusher-style clients.
 - **Benchmark Harness:** A reproducible benchmark setup is available in the
   `benchmarks/` workspace. Current results are experimental and
   topology-specific, so this README intentionally does not quote headline
   performance numbers.
-- **Zero-Copy Broadcasts:** Optimizes CPU usage by encoding messages once for thousands of clients.
+- **Prepared Broadcast Fanout:** Optimizes CPU usage by encoding broadcast payloads once per channel fanout.
 - **DoS Protection:** Built-in Token Bucket Rate Limiting, Handshake Throttling, and Circuit Breakers for PHP Auth.
-- **Horizontal Scaling:** Redis Pub/Sub support for multi-node clusters.
+- **Horizontal Scaling:** Redis Pub/Sub support for multi-node clusters with at-most-once delivery semantics.
 
 ## Production status
 
@@ -40,6 +40,12 @@ runtime.
 Do not yet present it as a production substitute for Laravel Reverb, Pusher, or
 other hosted realtime systems. Validate behavior, benchmarks, and failure modes
 for your topology before using it with production traffic.
+
+Supported Pusher protocol behavior is intentionally scoped: connection
+establishment, ping/pong, public/private/presence subscriptions, client events on
+private and presence channels, and `pusher:signin`. Features such as durable
+delivery, replay, encrypted channels, watchlists, and hosted Pusher management
+APIs are not implemented.
 
 ---
 
@@ -136,6 +142,7 @@ Configure the module within your `Caddyfile` at the root of your laravel project
             ping_period     54s         # Server Ping interval
             pong_wait       60s         # Client Pong timeout
             write_wait      10s         # Socket write timeout
+            shutdown_timeout 10s        # Max graceful shutdown wait
 
             # redis_host      localhost:6379
         }
@@ -159,11 +166,23 @@ requests whose `Origin` host matches the request host. Configure `allowed_origin
 when your frontend connects from a different origin; entries must be exact
 `http://` or `https://` origins, including the port when one is used.
 
+Handshake throttling is applied per direct remote IP address. If FrankenPHP sits
+behind a reverse proxy or load balancer that hides client IPs, enforce per-client
+rate limits at that proxy layer as well.
+
+Private and presence channel auth accepts standard Pusher signatures:
+`socket_id:channel` for private channels and
+`socket_id:channel:channel_data` for presence channels. If a client omits
+`auth`, the module falls back to the configured FrankenPHP auth worker and
+validates the worker's returned signature before subscribing the client.
+
 Native publish functions return `0` on success. Nonzero status codes indicate:
 `1` hub missing, `2` channel too long, `3` event too long, `4` payload too large,
 `5` invalid payload JSON, `6` broker publish failed, and `7` invalid multi-channel
-JSON, `8` broker queue full, and `9` shard queue full. The Laravel broadcaster
-turns these failures into `BroadcastException`.
+JSON, `8` broker queue full, and `9` shard queue full. Success means the message
+was accepted by the broker and shard queue; delivery to every connected client is
+at-most-once and may still fail for slow clients with full outbound queues. The
+Laravel broadcaster turns native failures into `BroadcastException`.
 
 Fill your .env
 
@@ -178,6 +197,11 @@ VITE_POGO_HOST=localhost #your site adress
 VITE_POGO_PORT=80 #your site port
 VITE_POGO_WSS_PORT=443 #your site port
 ```
+
+For multiple apps in one process, an explicit `app_secret` in the Caddyfile wins.
+If it is omitted, the module checks `WS_APP_SECRET_<APP_ID>` where non
+alphanumeric characters in the app id are converted to `_`, then falls back to
+`WS_APP_SECRET`.
 
 Start octane (`frankenphp` must be compiled with `pogo_websocket`).
 
@@ -207,6 +231,18 @@ Set `POGO_WS_HOT_PATH_METRICS=true` to enable detailed per-message fanout, queue
 | `pogo_websocket_client_dropped_messages_total` | Counter   | Messages dropped due to full client buffer.                 |
 | `pogo_websocket_publish_failures_total`        | Counter   | Failed publish attempts by app and reason.                  |
 | `pogo_websocket_webhook_dropped_total`         | Counter   | Webhook notifications dropped by reason.                    |
+| `pogo_websocket_control_queue_dropped_total`   | Counter   | Control messages rejected because internal queues were full. |
+
+## Reliability and security notes
+
+- Redis clustering uses Redis Pub/Sub. Messages are not persisted, replayed, or
+  acknowledged across nodes; messages can be lost during Redis outages,
+  reconnects, or local overload.
+- `/pogo/auth` and `/pogo/user-auth` are CSRF-exempt because they are called by
+  WebSocket clients. Protect them with normal Laravel authentication,
+  same-site/session settings, and the WebSocket `allowed_origins` policy.
+- Webhook notifications are best-effort and may be dropped when the webhook queue
+  is full or the module is shutting down.
 
 ---
 

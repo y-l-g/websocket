@@ -78,7 +78,9 @@ type ClientMessage struct {
 }
 
 type SubscribeData struct {
-	Channel string `json:"channel"`
+	Channel     string `json:"channel"`
+	Auth        string `json:"auth,omitempty"`
+	ChannelData string `json:"channel_data,omitempty"`
 }
 
 type SignInData struct {
@@ -203,11 +205,13 @@ func (c *Client) handleMessage(message []byte) {
 			return
 		}
 
-		c.hub.clientMessage <- &ClientMessageWrapper{
+		if !c.hub.EnqueueClientMessage(&ClientMessageWrapper{
 			Client:  c,
 			Channel: msg.Channel,
 			Event:   msg.Event,
 			Data:    msg.Data,
+		}) {
+			c.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
 		}
 		return
 	}
@@ -229,7 +233,7 @@ func (c *Client) handleMessage(message []byte) {
 		var authData json.RawMessage
 
 		if strings.HasPrefix(subData.Channel, protocol.ChannelPrefixPrivate) || strings.HasPrefix(subData.Channel, protocol.ChannelPrefixPresence) {
-			result := c.hub.Authorize(c, subData.Channel)
+			result := c.hub.Authorize(c, subData.Channel, subData.Auth, subData.ChannelData)
 			if !result.Allowed {
 				errMsg, _ := json.Marshal(map[string]interface{}{
 					"event": protocol.EventError,
@@ -244,10 +248,12 @@ func (c *Client) handleMessage(message []byte) {
 			authData = result.UserData
 		}
 
-		c.hub.subscribe <- &Subscription{
+		if !c.hub.EnqueueSubscribe(&Subscription{
 			Client:   c,
 			Channel:  subData.Channel,
 			AuthData: authData,
+		}) {
+			c.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
 		}
 
 	case protocol.EventUnsubscribe:
@@ -258,7 +264,9 @@ func (c *Client) handleMessage(message []byte) {
 		if !protocol.IsValidChannelName(subData.Channel) {
 			return
 		}
-		c.hub.unsubscribe <- &Subscription{Client: c, Channel: subData.Channel}
+		if !c.hub.EnqueueUnsubscribe(&Subscription{Client: c, Channel: subData.Channel}) {
+			c.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
+		}
 
 	case protocol.EventSignin:
 		var signin SignInData
@@ -288,6 +296,17 @@ func (c *Client) handleMessage(message []byte) {
 			c.Send(errPayload)
 		}
 	}
+}
+
+func (c *Client) SendError(code int, message string) {
+	errMsg, _ := json.Marshal(map[string]interface{}{
+		"event": protocol.EventError,
+		"data": map[string]interface{}{
+			"code":    code,
+			"message": message,
+		},
+	})
+	c.Send(errMsg)
 }
 
 func (c *Client) writePump() {
