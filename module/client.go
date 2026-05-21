@@ -94,8 +94,8 @@ type queuedOutboundMessage struct {
 }
 
 func (c *Client) Send(msg any) {
-	depth := len(c.send)
 	if c.hub != nil && c.hub.metrics != nil && c.hub.metrics.HotPathEnabled {
+		depth := len(c.send)
 		c.hub.metrics.ClientQueueDepth.Observe(float64(depth))
 		msg = queuedOutboundMessage{
 			payload:    msg,
@@ -211,7 +211,7 @@ func (c *Client) handleMessage(message []byte) {
 			Event:   msg.Event,
 			Data:    msg.Data,
 		}) {
-			c.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
+			return
 		}
 		return
 	}
@@ -253,7 +253,7 @@ func (c *Client) handleMessage(message []byte) {
 			Channel:  subData.Channel,
 			AuthData: authData,
 		}) {
-			c.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
+			return
 		}
 
 	case protocol.EventUnsubscribe:
@@ -264,9 +264,7 @@ func (c *Client) handleMessage(message []byte) {
 		if !protocol.IsValidChannelName(subData.Channel) {
 			return
 		}
-		if !c.hub.EnqueueUnsubscribe(&Subscription{Client: c, Channel: subData.Channel}) {
-			c.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
-		}
+		c.hub.EnqueueUnsubscribe(&Subscription{Client: c, Channel: subData.Channel})
 
 	case protocol.EventSignin:
 		var signin SignInData

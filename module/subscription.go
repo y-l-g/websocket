@@ -14,6 +14,12 @@ type Member struct {
 	UserInfo json.RawMessage `json:"user_info"`
 }
 
+type channelEventPayload struct {
+	Event   string `json:"event"`
+	Channel string `json:"channel"`
+	Data    string `json:"data"`
+}
+
 type SubscriptionManager struct {
 	channels     map[string]map[*Client]bool
 	clients      map[*Client]map[string]bool
@@ -46,10 +52,10 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 		sm.metrics.FanoutSubscribers.Observe(float64(len(clients)))
 	}
 
-	payload, err := json.Marshal(map[string]interface{}{
-		"event":   msg.Event,
-		"channel": msg.Channel,
-		"data":    string(msg.Data),
+	payload, err := json.Marshal(channelEventPayload{
+		Event:   msg.Event,
+		Channel: msg.Channel,
+		Data:    string(msg.Data),
 	})
 	if err != nil {
 		sm.logger.Error("JSON marshal error", zap.Error(err))
@@ -78,10 +84,10 @@ func (sm *SubscriptionManager) Subscribe(client *Client, channel string, userDat
 	}
 
 	sm.addSubscription(client, channel)
-	msg, _ := json.Marshal(map[string]interface{}{
-		"event":   protocol.EventSubscriptionSucceeded,
-		"channel": channel,
-		"data":    "{}",
+	msg, _ := json.Marshal(channelEventPayload{
+		Event:   protocol.EventSubscriptionSucceeded,
+		Channel: channel,
+		Data:    "{}",
 	})
 	client.Send(msg)
 	return true
@@ -119,10 +125,10 @@ func (sm *SubscriptionManager) BroadcastToOthers(sender *Client, channel, event 
 		return
 	}
 
-	payload, err := json.Marshal(map[string]interface{}{
-		"event":   event,
-		"channel": channel,
-		"data":    string(data),
+	payload, err := json.Marshal(channelEventPayload{
+		Event:   event,
+		Channel: channel,
+		Data:    string(data),
 	})
 	if err != nil {
 		return
@@ -209,10 +215,10 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 		},
 	}
 	dataJson, _ := json.Marshal(presencePayload)
-	successMsg, _ := json.Marshal(map[string]interface{}{
-		"event":   protocol.EventSubscriptionSucceeded,
-		"channel": channel,
-		"data":    string(dataJson),
+	successMsg, _ := json.Marshal(channelEventPayload{
+		Event:   protocol.EventSubscriptionSucceeded,
+		Channel: channel,
+		Data:    string(dataJson),
 	})
 	client.Send(successMsg)
 
@@ -222,10 +228,10 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 			"user_info": member.UserInfo,
 		}
 		addedDataBytes, _ := json.Marshal(addedData)
-		addedMsg, _ := json.Marshal(map[string]interface{}{
-			"event":   protocol.EventMemberAdded,
-			"channel": channel,
-			"data":    string(addedDataBytes),
+		addedMsg, _ := json.Marshal(channelEventPayload{
+			Event:   protocol.EventMemberAdded,
+			Channel: channel,
+			Data:    string(addedDataBytes),
 		})
 
 		pm, _ := websocket.NewPreparedMessage(websocket.TextMessage, addedMsg)
@@ -278,10 +284,10 @@ func (sm *SubscriptionManager) handlePresenceUnsubscribe(client *Client, channel
 					"user_id": userID,
 				}
 				removedDataBytes, _ := json.Marshal(removedData)
-				removedMsg, _ := json.Marshal(map[string]interface{}{
-					"event":   protocol.EventMemberRemoved,
-					"channel": channel,
-					"data":    string(removedDataBytes),
+				removedMsg, _ := json.Marshal(channelEventPayload{
+					Event:   protocol.EventMemberRemoved,
+					Channel: channel,
+					Data:    string(removedDataBytes),
 				})
 
 				pm, _ := websocket.NewPreparedMessage(websocket.TextMessage, removedMsg)

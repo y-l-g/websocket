@@ -161,9 +161,10 @@ func startNode(t *testing.T, binPath, rootDir, redisAddr, name string) *TestNode
 	}
 
 	url := fmt.Sprintf("http://127.0.0.1:%d/publish/publish.php", port)
+	client := http.Client{Timeout: 500 * time.Millisecond}
 	ready := false
 	for i := 0; i < 20; i++ {
-		if resp, err := http.Get(url); err == nil {
+		if resp, err := client.Get(url); err == nil {
 			// Fixed: Ignore close error
 			_ = resp.Body.Close()
 			ready = true

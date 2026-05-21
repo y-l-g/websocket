@@ -231,7 +231,6 @@ Set `POGO_WS_HOT_PATH_METRICS=true` to enable detailed per-message fanout, queue
 | `pogo_websocket_client_dropped_messages_total` | Counter   | Messages dropped due to full client buffer.                 |
 | `pogo_websocket_publish_failures_total`        | Counter   | Failed publish attempts by app and reason.                  |
 | `pogo_websocket_webhook_dropped_total`         | Counter   | Webhook notifications dropped by reason.                    |
-| `pogo_websocket_control_queue_dropped_total`   | Counter   | Control messages rejected because internal queues were full. |
 
 ## Reliability and security notes
 

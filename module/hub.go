@@ -312,11 +312,6 @@ func (h *Hub) Unregister(c *Client) {
 			select {
 			case h.shards[i].cleanup <- c:
 			case <-h.ctx.Done():
-			case <-time.After(100 * time.Millisecond):
-				if h.metrics != nil {
-					h.metrics.ControlQueueDropped.WithLabelValues(h.AppID, "cleanup").Inc()
-				}
-				h.logger.Warn("Hub: cleanup queue full", zap.Int("shard", i), zap.String("id", c.ID))
 			}
 		}
 	}
@@ -339,53 +334,30 @@ func (h *Hub) Authorize(client *Client, channel string, auth string, channelData
 }
 
 func (h *Hub) EnqueueSubscribe(sub *Subscription) bool {
-	return h.enqueueControl("subscribe", func() bool {
-		select {
-		case h.subscribe <- sub:
-			return true
-		case <-h.ctx.Done():
-			return false
-		default:
-			return false
-		}
-	})
+	select {
+	case h.subscribe <- sub:
+		return true
+	case <-h.ctx.Done():
+		return false
+	}
 }
 
 func (h *Hub) EnqueueUnsubscribe(sub *Subscription) bool {
-	return h.enqueueControl("unsubscribe", func() bool {
-		select {
-		case h.unsubscribe <- sub:
-			return true
-		case <-h.ctx.Done():
-			return false
-		default:
-			return false
-		}
-	})
+	select {
+	case h.unsubscribe <- sub:
+		return true
+	case <-h.ctx.Done():
+		return false
+	}
 }
 
 func (h *Hub) EnqueueClientMessage(msg *ClientMessageWrapper) bool {
-	return h.enqueueControl("client_message", func() bool {
-		select {
-		case h.clientMessage <- msg:
-			return true
-		case <-h.ctx.Done():
-			return false
-		default:
-			return false
-		}
-	})
-}
-
-func (h *Hub) enqueueControl(queue string, send func() bool) bool {
-	if send() {
+	select {
+	case h.clientMessage <- msg:
 		return true
+	case <-h.ctx.Done():
+		return false
 	}
-	if h.metrics != nil {
-		h.metrics.ControlQueueDropped.WithLabelValues(h.AppID, queue).Inc()
-	}
-	h.logger.Warn("Hub: control queue full", zap.String("queue", queue), zap.String("app_id", h.AppID))
-	return false
 }
 
 func (h *Hub) Publish(channel, event, data string) bool {
@@ -582,24 +554,18 @@ func (h *Hub) Run() {
 		case sub := <-h.subscribe:
 			if len(sub.Channel) <= protocol.MaxChannelLength {
 				shard := h.getShard(sub.Channel)
-				if !shard.EnqueueSubscribe(sub) {
-					sub.Client.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
-				}
+				shard.EnqueueSubscribe(sub)
 			}
 
 		case sub := <-h.unsubscribe:
 			if len(sub.Channel) <= protocol.MaxChannelLength {
 				shard := h.getShard(sub.Channel)
-				if !shard.EnqueueUnsubscribe(sub) {
-					sub.Client.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
-				}
+				shard.EnqueueUnsubscribe(sub)
 			}
 
 		case cMsg := <-h.clientMessage:
 			shard := h.getShard(cMsg.Channel)
-			if !shard.EnqueueClientMessage(cMsg) {
-				cMsg.Client.SendError(protocol.ErrorGenericReconnect, "Server overloaded, retry later")
-			}
+			shard.EnqueueClientMessage(cMsg)
 
 		case <-h.ctx.Done():
 			h.setHealth(false, "shutting_down")

@@ -135,25 +135,6 @@ func TestHubPublishRecordsHotPathMetrics(t *testing.T) {
 	}
 }
 
-func TestHubControlQueueFullReturnsFalse(t *testing.T) {
-	logger := zap.NewNop()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	metrics := NewMetrics(prometheus.NewRegistry())
-	delivery := DefaultDeliveryConfig()
-	delivery.ShardQueueSize = 1
-	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, &MockBroker{}, 10000, 1, DefaultPingPeriod, delivery)
-	hub.subscribe <- &Subscription{Channel: "held"}
-
-	if hub.EnqueueSubscribe(&Subscription{Client: &Client{ID: "client"}, Channel: "public-test"}) {
-		t.Fatal("Expected enqueue to fail when subscribe queue is full")
-	}
-	if got := counterValue(t, metrics.ControlQueueDropped.WithLabelValues("test-app", "subscribe")); got != 1 {
-		t.Fatalf("Expected one control queue drop, got %d", got)
-	}
-}
-
 func TestHubSubscribeFailureMarksUnhealthy(t *testing.T) {
 	logger := zap.NewNop()
 	ctx, cancel := context.WithCancel(context.Background())

@@ -213,8 +213,9 @@ func expectHandshake(t *testing.T, ws *websocket.Conn) {
 }
 
 func waitForServer(url string) bool {
+	client := http.Client{Timeout: 500 * time.Millisecond}
 	for i := 0; i < 30; i++ {
-		conn, err := http.Get(url)
+		conn, err := client.Get(url)
 		if err == nil {
 			_ = conn.Body.Close()
 			return true
