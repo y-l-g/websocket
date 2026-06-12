@@ -13,7 +13,7 @@
 This repository is intentionally limited to the websocket extension and its package-level validation:
 
 - `module/`: the Go/Caddy/FrankenPHP websocket module.
-- `lib/`: the Laravel broadcasting driver.
+- `lib/`: the Laravel installer/package helpers and optional native broadcaster.
 - `module/tests/`: module unit, integration, and low-level performance tests.
 
 Full application showcases belong in `pogoShowcase`. Keep this repository focused on code that ships with, tests, or measures the websocket package.
@@ -23,6 +23,10 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
 ## Features
 
 - **Pusher-Compatible Protocol Subset:** Supports public, private, and presence channels, client events, and user authentication for Echo/Pusher-style clients.
+- **Reverb-compatible Event Publishing:** Accepts signed Pusher HTTP
+  `POST /apps/{appId}/events` and `POST /apps/{appId}/batch_events` requests
+  from Laravel's built-in `reverb` broadcaster, including `socket_id`
+  exclusion for `toOthers()`.
 - **Benchmark Harness:** A reproducible benchmark setup is available in the
   `benchmarks/` workspace. Current results are experimental and
   topology-specific, so this README intentionally does not quote headline
@@ -43,9 +47,9 @@ for your topology before using it with production traffic.
 
 Supported Pusher protocol behavior is intentionally scoped: connection
 establishment, ping/pong, public/private/presence subscriptions, client events on
-private and presence channels, and `pusher:signin`. Features such as durable
-delivery, replay, encrypted channels, watchlists, and hosted Pusher management
-APIs are not implemented.
+private and presence channels, `pusher:signin`, and signed HTTP event/batch
+publishing. Features such as durable delivery, replay, encrypted channels,
+watchlists, and Pusher management/statistics APIs are not implemented.
 
 ---
 
@@ -119,7 +123,8 @@ Configure the module within your `Caddyfile` at the root of your laravel project
         }
     }
 
-    route /app/* {
+    @websocket path /app/* /apps/* /up /pogo/health
+    route @websocket {
         pogo_websocket {
             app_id          {$REVERB_APP_ID}
             app_key         {$REVERB_APP_KEY}

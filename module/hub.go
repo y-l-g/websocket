@@ -132,10 +132,15 @@ type BroadcastMessage struct {
 	Channel           string             `json:"channel"`
 	Event             string             `json:"event"`
 	Data              json.RawMessage    `json:"data"`
+	ExceptSocketID    string             `json:"socket_id,omitempty"`
 	InternalCreatedAt time.Time          `json:"-"`
 	BrokerReceivedAt  time.Time          `json:"-"`
 	ShardBroadcastAt  time.Time          `json:"-"`
 	LocalResult       chan PublishStatus `json:"-"`
+}
+
+type PublishOptions struct {
+	ExceptSocketID string
 }
 
 type Subscription struct {
@@ -364,7 +369,15 @@ func (h *Hub) Publish(channel, event, data string) bool {
 	return h.publish(channel, event, data) == PublishOK
 }
 
+func (h *Hub) PublishWithOptions(channel, event, data string, options PublishOptions) PublishStatus {
+	return h.publishWithOptions(channel, event, data, options)
+}
+
 func (h *Hub) publish(channel, event, data string) PublishStatus {
+	return h.publishWithOptions(channel, event, data, PublishOptions{})
+}
+
+func (h *Hub) publishWithOptions(channel, event, data string, options PublishOptions) PublishStatus {
 	totalStart := time.Now()
 	validateStart := totalStart
 	hotPath := h.metrics != nil && h.metrics.HotPathEnabled
@@ -412,6 +425,7 @@ func (h *Hub) publish(channel, event, data string) PublishStatus {
 		Channel:           channel,
 		Event:             event,
 		Data:              raw,
+		ExceptSocketID:    options.ExceptSocketID,
 		InternalCreatedAt: time.Now(),
 	}
 	if h.supportsLocalPublishAck() {
@@ -477,6 +491,10 @@ func (h *Hub) publishScope() string {
 }
 
 func publishToActiveHubs(hubs []*Hub, channel, event, data string) PublishStatus {
+	return publishToActiveHubsWithOptions(hubs, channel, event, data, PublishOptions{})
+}
+
+func publishToActiveHubsWithOptions(hubs []*Hub, channel, event, data string, options PublishOptions) PublishStatus {
 	if len(hubs) == 0 {
 		return PublishHubMissing
 	}
@@ -490,7 +508,7 @@ func publishToActiveHubs(hubs []*Hub, channel, event, data string) PublishStatus
 		}
 		publishedScopes[scope] = struct{}{}
 
-		if result := hub.publish(channel, event, data); result != PublishOK && status == PublishOK {
+		if result := hub.publishWithOptions(channel, event, data, options); result != PublishOK && status == PublishOK {
 			status = result
 		}
 	}

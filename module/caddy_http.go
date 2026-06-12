@@ -97,8 +97,13 @@ func remoteAddrKey(remoteAddr string) string {
 }
 
 func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next caddyhttp.Handler) error {
-	if r.URL.Path == "/pogo/health" {
+	if r.URL.Path == "/pogo/health" || r.URL.Path == "/up" {
 		m.serveHealth(w)
+		return nil
+	}
+
+	if strings.HasPrefix(r.URL.Path, "/apps/") {
+		m.servePusherAPI(w, r)
 		return nil
 	}
 

@@ -117,7 +117,8 @@ func startNode(t *testing.T, binPath, rootDir, redisAddr, name string) *TestNode
 }
 
 :%d {
-    route /app/* {
+    @websocket path /app/* /apps/* /up /pogo/health
+    route @websocket {
         pogo_websocket {
             app_id          test-app
             app_key         test-key

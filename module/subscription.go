@@ -65,15 +65,18 @@ func (sm *SubscriptionManager) BroadcastToChannel(msg *BroadcastMessage) {
 	pm, err := websocket.NewPreparedMessage(websocket.TextMessage, payload)
 	if err != nil {
 		sm.logger.Error("PreparedMessage error", zap.Error(err))
-		sm.fanout(clients, payload)
+		sm.fanout(clients, payload, msg.ExceptSocketID)
 		return
 	}
 
-	sm.fanout(clients, pm)
+	sm.fanout(clients, pm, msg.ExceptSocketID)
 }
 
-func (sm *SubscriptionManager) fanout(clients map[*Client]bool, payload any) {
+func (sm *SubscriptionManager) fanout(clients map[*Client]bool, payload any, exceptSocketID string) {
 	for client := range clients {
+		if exceptSocketID != "" && client.ID == exceptSocketID {
+			continue
+		}
 		client.Send(payload)
 	}
 }
