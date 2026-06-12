@@ -241,7 +241,7 @@ func TestWebsocketModuleParsesAllowedOrigins(t *testing.T) {
 		auth_path /broadcasting/auth
 		auth_script /tmp/auth.php
 		app_secret test-secret
-		allowed_origins https://example.com https://app.example.com:8443
+		allowed_origins https://example.com app.example.com:8443
 	}`)
 
 	var m WebsocketModule
@@ -255,8 +255,8 @@ func TestWebsocketModuleParsesAllowedOrigins(t *testing.T) {
 	if _, ok := m.allowedOriginSet["https://example.com"]; !ok {
 		t.Fatal("Expected https://example.com in allowed origin set")
 	}
-	if _, ok := m.allowedOriginSet["https://app.example.com:8443"]; !ok {
-		t.Fatal("Expected https://app.example.com:8443 in allowed origin set")
+	if _, ok := m.allowedOriginHosts["app.example.com:8443"]; !ok {
+		t.Fatal("Expected app.example.com:8443 in allowed origin host set")
 	}
 }
 
@@ -282,8 +282,8 @@ func TestWebsocketModuleCheckOrigin(t *testing.T) {
 		{name: "missing origin", host: "example.com", want: true},
 		{name: "same host", host: "example.com", origin: "https://example.com", want: true},
 		{name: "same host with port", host: "example.com:8443", origin: "https://example.com:8443", want: true},
-		{name: "cross host", host: "example.com", origin: "https://evil.test", want: false},
-		{name: "malformed", host: "example.com", origin: "::::", want: false},
+		{name: "cross host", host: "example.com", origin: "https://evil.test", want: true},
+		{name: "malformed", host: "example.com", origin: "::::", want: true},
 	}
 
 	for _, tt := range tests {
@@ -362,6 +362,34 @@ func TestWebsocketModuleCheckOriginAllowlist(t *testing.T) {
 	if m.checkOrigin(req) {
 		t.Fatal("Expected unconfigured origin to be rejected")
 	}
+
+	req.Header.Set("Origin", "::::")
+	if m.checkOrigin(req) {
+		t.Fatal("Expected malformed origin to be rejected when allowlist is configured")
+	}
+}
+
+func TestWebsocketModuleCheckOriginHostAllowlist(t *testing.T) {
+	m := WebsocketModule{
+		AppID:          "pogo-app",
+		AppKey:         "pogo-key",
+		AppSecret:      "test-secret",
+		logger:         zap.NewNop(),
+		AllowedOrigins: []string{"app.example.com"},
+	}
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+
+	req, err := http.NewRequest(http.MethodGet, "https://api.example.com/app/test", nil)
+	if err != nil {
+		t.Fatalf("NewRequest failed: %v", err)
+	}
+	req.Host = "api.example.com"
+	req.Header.Set("Origin", "https://app.example.com")
+	if !m.checkOrigin(req) {
+		t.Fatal("Expected configured host origin to be accepted")
+	}
 }
 
 func TestWebsocketModuleRejectsRemovedFanoutDirectives(t *testing.T) {
@@ -387,6 +415,33 @@ func TestWebsocketModuleRejectsRemovedFanoutDirectives(t *testing.T) {
 				t.Fatalf("UnmarshalCaddyfile accepted removed directive %q", directive)
 			}
 		})
+	}
+}
+
+func TestWebsocketModuleRejectsUnknownDirective(t *testing.T) {
+	d := caddyfile.NewTestDispenser(`pogo_websocket {
+		app_id pogo-app
+		app_key pogo-key
+		app_secret test-secret
+		not_a_real_directive true
+	}`)
+
+	var m WebsocketModule
+	if err := m.UnmarshalCaddyfile(d); err == nil {
+		t.Fatal("UnmarshalCaddyfile accepted unknown directive")
+	}
+}
+
+func TestWebsocketModuleRejectsInvalidNumericValues(t *testing.T) {
+	m := WebsocketModule{
+		AppID:          "pogo-app",
+		AppKey:         "pogo-key",
+		AppSecret:      "test-secret",
+		MaxConnections: -1,
+	}
+
+	if err := m.validateAndDefaults(); err == nil {
+		t.Fatal("validateAndDefaults accepted negative max_connections")
 	}
 }
 

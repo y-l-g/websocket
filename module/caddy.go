@@ -58,17 +58,19 @@ type WebsocketModule struct {
 	pongWaitDuration   time.Duration
 	shutdownTimeout    time.Duration
 
-	hub              *Hub
-	metrics          *Metrics
-	workerHandle     frankenphp.Workers
-	webhook          *WebhookManager
-	logger           *zap.Logger
-	upgrader         websocket.Upgrader
-	allowedOriginSet map[string]struct{}
-	limitersMu       sync.Mutex
-	limiters         map[string]*remoteHandshakeLimiter
-	ctx              context.Context
-	cancel           context.CancelFunc
+	hub                *Hub
+	metrics            *Metrics
+	workerHandle       frankenphp.Workers
+	webhook            *WebhookManager
+	logger             *zap.Logger
+	upgrader           websocket.Upgrader
+	allowedOriginSet   map[string]struct{}
+	allowedOriginHosts map[string]struct{}
+	allowAllOrigins    bool
+	limitersMu         sync.Mutex
+	limiters           map[string]*remoteHandshakeLimiter
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
 type remoteHandshakeLimiter struct {

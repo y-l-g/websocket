@@ -21,6 +21,9 @@ func (m *WebsocketModule) checkOrigin(r *http.Request) bool {
 	if origin == "" {
 		return true
 	}
+	if m.allowAllOrigins {
+		return true
+	}
 
 	normalized, ok := normalizeOrigin(origin)
 	if !ok {
@@ -32,11 +35,20 @@ func (m *WebsocketModule) checkOrigin(r *http.Request) bool {
 		if _, ok := m.allowedOriginSet[normalized]; ok {
 			return true
 		}
+	}
+
+	parsedOrigin, _ := url.Parse(origin)
+	if len(m.allowedOriginHosts) > 0 {
+		if _, ok := m.allowedOriginHosts[strings.ToLower(parsedOrigin.Host)]; ok {
+			return true
+		}
+	}
+
+	if len(m.allowedOriginSet) > 0 || len(m.allowedOriginHosts) > 0 {
 		m.logger.Warn("WebSocket origin rejected: not in allowlist", zap.String("origin", origin), zap.String("host", r.Host))
 		return false
 	}
 
-	parsedOrigin, _ := url.Parse(origin)
 	if strings.EqualFold(parsedOrigin.Host, r.Host) {
 		return true
 	}

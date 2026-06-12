@@ -254,7 +254,12 @@ func (sm *SubscriptionManager) handlePresenceSubscribe(client *Client, channel s
 
 func (sm *SubscriptionManager) Unsubscribe(client *Client, channel string) {
 	if clients, ok := sm.channels[channel]; ok {
-		delete(clients, client)
+		if _, subscribed := clients[client]; subscribed {
+			delete(clients, client)
+			if sm.metrics != nil {
+				sm.metrics.Subscriptions.Dec()
+			}
+		}
 		if len(clients) == 0 {
 			delete(sm.channels, channel)
 			if sm.webhook != nil {

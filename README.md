@@ -168,10 +168,10 @@ Configure the module within your `Caddyfile` at the root of your laravel project
 }
 ```
 
-By default, WebSocket upgrades accept requests without an `Origin` header and browser
-requests whose `Origin` host matches the request host. Configure `allowed_origins`
-when your frontend connects from a different origin; entries must be exact
-`http://` or `https://` origins, including the port when one is used.
+By default, WebSocket upgrades accept all origins, matching Reverb's default
+`allowed_origins ['*']`. Configure `allowed_origins` to restrict browsers; entries
+may be `*`, exact `http://` or `https://` origins, or host-only values such as
+`app.example.com`.
 
 Handshake throttling is applied per direct remote IP address. If FrankenPHP sits
 behind a reverse proxy or load balancer that hides client IPs, enforce per-client
@@ -236,7 +236,7 @@ Set `POGO_WS_HOT_PATH_METRICS=true` to enable detailed per-message fanout, queue
 | `pogo_websocket_auth_failures_total`           | Counter   | Failed auths (labels: `concurrency_limit`, `worker_error`). |
 | `pogo_websocket_circuit_breaker_open_total`    | Counter   | Requests rejected by Circuit Breaker.                       |
 | `pogo_websocket_broker_dropped_messages_total` | Counter   | Messages dropped due to internal backpressure.              |
-| `pogo_websocket_subscriptions_total`           | Counter   | Total active subscriptions.                                 |
+| `pogo_websocket_subscriptions_active`          | Gauge     | Active channel subscriptions.                               |
 | `pogo_websocket_auth_duration_seconds`         | Histogram | Latency of the PHP Auth Worker.                             |
 | `pogo_websocket_client_dropped_messages_total` | Counter   | Messages dropped due to full client buffer.                 |
 | `pogo_websocket_publish_failures_total`        | Counter   | Failed publish attempts by app and reason.                  |

@@ -10,7 +10,7 @@ import (
 type Metrics struct {
 	Connections          prometheus.Gauge
 	Messages             prometheus.Counter
-	Subscriptions        prometheus.Counter
+	Subscriptions        prometheus.Gauge
 	AuthDuration         prometheus.Histogram
 	BreakerTripped       prometheus.Counter
 	AuthFailures         *prometheus.CounterVec
@@ -45,10 +45,10 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "messages_total",
 			Help:      "Total number of messages published to the Hub",
 		}),
-		Subscriptions: prometheus.NewCounter(prometheus.CounterOpts{
+		Subscriptions: prometheus.NewGauge(prometheus.GaugeOpts{
 			Namespace: "pogo_websocket",
-			Name:      "subscriptions_total",
-			Help:      "Total number of channel subscriptions",
+			Name:      "subscriptions_active",
+			Help:      "Current number of active channel subscriptions",
 		}),
 		AuthDuration: prometheus.NewHistogram(prometheus.HistogramOpts{
 			Namespace: "pogo_websocket",

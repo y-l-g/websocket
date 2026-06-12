@@ -41,14 +41,32 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	if m.NumWorkers == 0 {
 		m.NumWorkers = 2
 	}
+	if m.NumWorkers < 0 {
+		return fmt.Errorf("num_workers must not be negative")
+	}
 	if m.MaxConnections == 0 {
 		m.MaxConnections = 10000
+	}
+	if m.MaxConnections < 1 {
+		return fmt.Errorf("max_connections must be greater than 0")
 	}
 	if m.MaxAuthBody == 0 {
 		m.MaxAuthBody = 16 * 1024
 	}
+	if m.MaxAuthBody < 1 {
+		return fmt.Errorf("max_auth_body must be greater than 0")
+	}
 	if m.MaxConcurrentAuth == 0 {
 		m.MaxConcurrentAuth = 100
+	}
+	if m.MaxConcurrentAuth < 1 {
+		return fmt.Errorf("max_concurrent_auth must be greater than 0")
+	}
+	if m.HandshakeBurst < 0 {
+		return fmt.Errorf("handshake_burst must not be negative")
+	}
+	if m.RedisDB < 0 {
+		return fmt.Errorf("redis_db must not be negative")
 	}
 
 	if m.NumShards == 0 {
@@ -59,6 +77,9 @@ func (m *WebsocketModule) validateAndDefaults() error {
 		if m.NumShards < 4 {
 			m.NumShards = 4
 		}
+	}
+	if m.NumShards < 1 {
+		return fmt.Errorf("num_shards must be greater than 0")
 	}
 
 	defaultDelivery := DefaultDeliveryConfig()
@@ -103,12 +124,30 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	}
 
 	m.allowedOriginSet = make(map[string]struct{}, len(m.AllowedOrigins))
+	m.allowedOriginHosts = make(map[string]struct{}, len(m.AllowedOrigins))
+	m.allowAllOrigins = len(m.AllowedOrigins) == 0
 	for _, origin := range m.AllowedOrigins {
-		normalized, ok := normalizeOrigin(origin)
-		if !ok {
-			return fmt.Errorf("invalid allowed_origin %q", origin)
+		switch {
+		case origin == "*":
+			m.allowAllOrigins = true
+		case strings.Contains(origin, "://"):
+			normalized, ok := normalizeOrigin(origin)
+			if !ok {
+				return fmt.Errorf("invalid allowed_origin %q", origin)
+			}
+			m.allowedOriginSet[normalized] = struct{}{}
+		default:
+			host, ok := normalizeOriginHost(origin)
+			if !ok {
+				return fmt.Errorf("invalid allowed_origin %q", origin)
+			}
+			m.allowedOriginHosts[host] = struct{}{}
 		}
-		m.allowedOriginSet[normalized] = struct{}{}
+	}
+
+	if m.allowAllOrigins {
+		m.allowedOriginSet = nil
+		m.allowedOriginHosts = nil
 	}
 
 	var err error
@@ -152,6 +191,13 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	}
 
 	return nil
+}
+
+func normalizeOriginHost(raw string) (string, bool) {
+	if raw == "" || strings.Contains(raw, "/") || strings.Contains(raw, "?") || strings.Contains(raw, "#") {
+		return "", false
+	}
+	return strings.ToLower(raw), true
 }
 
 func normalizeOrigin(raw string) (string, bool) {
@@ -462,6 +508,8 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 						return d.Errf("invalid boolean: %v", err)
 					}
 				}
+			default:
+				return d.Errf("unrecognized directive %q", d.Val())
 			}
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"go.uber.org/zap"
 )
 
@@ -142,4 +143,35 @@ func TestBroadcastToChannelFanoutSendsToAllClients(t *testing.T) {
 			t.Fatalf("Expected client to receive one message, got queue depth %d", len(client.send))
 		}
 	}
+}
+
+func TestSubscriptionGaugeTracksActiveSubscriptions(t *testing.T) {
+	metrics := NewMetrics(prometheus.NewRegistry())
+	sm := NewSubscriptionManager(zap.NewNop(), metrics, nil)
+	client := &Client{ID: "c1", send: make(chan any, 4)}
+
+	sm.Subscribe(client, "public-test", nil)
+	if got := gaugeValue(t, metrics.Subscriptions); got != 1 {
+		t.Fatalf("active subscriptions = %v, want 1", got)
+	}
+
+	sm.Subscribe(client, "public-test", nil)
+	if got := gaugeValue(t, metrics.Subscriptions); got != 1 {
+		t.Fatalf("active subscriptions after duplicate subscribe = %v, want 1", got)
+	}
+
+	sm.Unsubscribe(client, "public-test")
+	if got := gaugeValue(t, metrics.Subscriptions); got != 0 {
+		t.Fatalf("active subscriptions after unsubscribe = %v, want 0", got)
+	}
+}
+
+func gaugeValue(t *testing.T, gauge prometheus.Gauge) float64 {
+	t.Helper()
+
+	var metric dto.Metric
+	if err := gauge.Write(&metric); err != nil {
+		t.Fatalf("Gauge Write failed: %v", err)
+	}
+	return metric.GetGauge().GetValue()
 }
