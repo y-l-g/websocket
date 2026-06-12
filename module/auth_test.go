@@ -23,12 +23,12 @@ type MockWorker struct {
 	ShouldFail bool
 	Calls      int
 	Delay      time.Duration
-	AppID      string
+	AppKey     string
 	Secret     string
 }
 
-func TestAuthenticateUserValidatesAppIDAndSecret(t *testing.T) {
-	auth := NewWorkerAuthProvider(zap.NewNop(), NewMetrics(prometheus.NewRegistry()), nil, "test-app", "/auth", 1024, 100, "app-secret")
+func TestAuthenticateUserValidatesAppKeyAndSecret(t *testing.T) {
+	auth := NewWorkerAuthProvider(zap.NewNop(), NewMetrics(prometheus.NewRegistry()), nil, "test-key", "/auth", 1024, 100, "app-secret")
 	client := &Client{ID: "1.1"}
 	userData := `{"id":"123"}`
 	toSign := fmt.Sprintf("%s::user::%s", client.ID, userData)
@@ -36,16 +36,16 @@ func TestAuthenticateUserValidatesAppIDAndSecret(t *testing.T) {
 	mac.Write([]byte(toSign))
 	signature := hex.EncodeToString(mac.Sum(nil))
 
-	if res := auth.AuthenticateUser(client, "test-app:"+signature, userData); !res.Allowed {
+	if res := auth.AuthenticateUser(client, "test-key:"+signature, userData); !res.Allowed {
 		t.Fatal("Expected user auth to be allowed")
 	}
-	if res := auth.AuthenticateUser(client, "other-app:"+signature, userData); res.Allowed {
-		t.Fatal("Expected user auth with wrong app id to be denied")
+	if res := auth.AuthenticateUser(client, "other-key:"+signature, userData); res.Allowed {
+		t.Fatal("Expected user auth with wrong app key to be denied")
 	}
 }
 
 func TestAuthorizeProvidedChannelSignature(t *testing.T) {
-	auth := NewWorkerAuthProvider(zap.NewNop(), NewMetrics(prometheus.NewRegistry()), nil, "test-app", "/auth", 1024, 100, "app-secret")
+	auth := NewWorkerAuthProvider(zap.NewNop(), NewMetrics(prometheus.NewRegistry()), nil, "test-key", "/auth", 1024, 100, "app-secret")
 	client := &Client{ID: "1.1"}
 	channel := "presence-room"
 	channelData := `{"user_id":"123"}`
@@ -54,12 +54,12 @@ func TestAuthorizeProvidedChannelSignature(t *testing.T) {
 	mac.Write([]byte(toSign))
 	signature := hex.EncodeToString(mac.Sum(nil))
 
-	res := auth.Authorize(client, channel, "test-app:"+signature, channelData)
+	res := auth.Authorize(client, channel, "test-key:"+signature, channelData)
 	if !res.Allowed {
 		t.Fatal("Expected provided channel signature to be allowed")
 	}
 
-	res = auth.Authorize(client, channel, "test-app:"+signature, "")
+	res = auth.Authorize(client, channel, "test-key:"+signature, "")
 	if res.Allowed {
 		t.Fatal("Expected presence auth without channel_data to be denied")
 	}
@@ -81,9 +81,9 @@ func (m *MockWorker) SendRequest(w http.ResponseWriter, r *http.Request) error {
 	body, _ := io.ReadAll(r.Body)
 	var payload map[string]string
 	_ = json.Unmarshal(body, &payload)
-	appID := m.AppID
-	if appID == "" {
-		appID = "test-app"
+	appKey := m.AppKey
+	if appKey == "" {
+		appKey = "test-key"
 	}
 	secret := m.Secret
 	if secret == "" {
@@ -100,7 +100,7 @@ func (m *MockWorker) SendRequest(w http.ResponseWriter, r *http.Request) error {
 	toSign := channelStringToSign(socketID, channel, channelData)
 	mac := hmac.New(sha256.New, []byte(secret))
 	mac.Write([]byte(toSign))
-	response["auth"] = appID + ":" + hex.EncodeToString(mac.Sum(nil))
+	response["auth"] = appKey + ":" + hex.EncodeToString(mac.Sum(nil))
 
 	w.WriteHeader(200)
 	_ = json.NewEncoder(w).Encode(response)
@@ -132,7 +132,7 @@ func TestCircuitBreakerIntegration(t *testing.T) {
 	metrics := NewMetrics(prometheus.NewRegistry())
 	worker := &MockWorker{}
 
-	auth := NewWorkerAuthProvider(logger, metrics, worker, "test-app", "/auth", 1024, 100, "secret")
+	auth := NewWorkerAuthProvider(logger, metrics, worker, "test-key", "/auth", 1024, 100, "secret")
 
 	client := &Client{ID: "test", Headers: make(http.Header)}
 
@@ -170,7 +170,7 @@ func TestAuthConcurrencyLimit(t *testing.T) {
 		Delay: 100 * time.Millisecond,
 	}
 
-	auth := NewWorkerAuthProvider(logger, metrics, worker, "test-app", "/auth", 1024, 2, "secret")
+	auth := NewWorkerAuthProvider(logger, metrics, worker, "test-key", "/auth", 1024, 2, "secret")
 	client := &Client{ID: "test", Headers: make(http.Header)}
 
 	var wg sync.WaitGroup
@@ -210,7 +210,7 @@ func TestWorkerAuthRejectsInvalidSignature(t *testing.T) {
 	logger := zap.NewNop()
 	metrics := NewMetrics(prometheus.NewRegistry())
 	worker := &MockWorker{Secret: "wrong-secret"}
-	auth := NewWorkerAuthProvider(logger, metrics, worker, "test-app", "/auth", 1024, 100, "secret")
+	auth := NewWorkerAuthProvider(logger, metrics, worker, "test-key", "/auth", 1024, 100, "secret")
 	client := &Client{ID: "test", Headers: make(http.Header)}
 
 	res := auth.Authorize(client, "private-test", "", "")

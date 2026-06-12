@@ -15,6 +15,7 @@ class Broadcaster extends BaseBroadcaster
     use UsePusherChannelConventions;
 
     protected string $appId;
+    protected string $appKey;
     protected string $secret;
 
     /**
@@ -26,11 +27,16 @@ class Broadcaster extends BaseBroadcaster
             throw new InvalidArgumentException('Pogo WebSocket requires a non-empty app_id.');
         }
 
+        if (!isset($config['key']) || !is_string($config['key']) || $config['key'] === '') {
+            throw new InvalidArgumentException('Pogo WebSocket requires a non-empty key.');
+        }
+
         if (!isset($config['secret']) || !is_string($config['secret']) || $config['secret'] === '') {
             throw new InvalidArgumentException('Pogo WebSocket requires a non-empty secret.');
         }
 
         $this->appId = $config['app_id'];
+        $this->appKey = $config['key'];
         $this->secret = $config['secret'];
     }
 
@@ -138,7 +144,7 @@ class Broadcaster extends BaseBroadcaster
         $signature = hash_hmac('sha256', $stringToSign, $this->secret);
 
         return [
-            'auth' => $this->appId . ':' . $signature,
+            'auth' => $this->appKey . ':' . $signature,
             'user_data' => $userDataJson,
         ];
     }
@@ -280,6 +286,6 @@ class Broadcaster extends BaseBroadcaster
         }
 
         $signature = hash_hmac('sha256', $stringToSign, $this->secret);
-        return $this->appId . ':' . $signature;
+        return $this->appKey . ':' . $signature;
     }
 }

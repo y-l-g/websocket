@@ -41,13 +41,13 @@ $handler = function () {
         $signature = hash_hmac('sha256', $socketId . ':' . $channel . ':' . $channelData, $secret);
 
         echo json_encode([
-            'auth' => 'test-app:' . $signature,
+            'auth' => 'test-key:' . $signature,
             'channel_data' => $channelData,
         ]);
     } else {
         $signature = hash_hmac('sha256', $socketId . ':' . $channel, $secret);
         echo json_encode([
-            'auth' => 'test-app:' . $signature,
+            'auth' => 'test-key:' . $signature,
         ]);
     }
 };

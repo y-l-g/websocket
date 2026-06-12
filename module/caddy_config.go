@@ -14,7 +14,16 @@ import (
 
 func (m *WebsocketModule) validateAndDefaults() error {
 	if m.AppID == "" {
-		return fmt.Errorf("the 'app_id' directive is required")
+		m.AppID = os.Getenv("REVERB_APP_ID")
+	}
+	if m.AppID == "" {
+		return fmt.Errorf("the 'app_id' directive or REVERB_APP_ID environment variable is required")
+	}
+	if m.AppKey == "" {
+		m.AppKey = os.Getenv("REVERB_APP_KEY")
+	}
+	if m.AppKey == "" {
+		return fmt.Errorf("the 'app_key' directive or REVERB_APP_KEY environment variable is required")
 	}
 	if m.AuthScript == "" {
 		return fmt.Errorf("the 'auth_script' directive is required")
@@ -23,7 +32,7 @@ func (m *WebsocketModule) validateAndDefaults() error {
 		return fmt.Errorf("the 'auth_path' directive is required")
 	}
 	if m.AppSecret == "" {
-		m.AppSecret = appSecretFromEnv(m.AppID)
+		m.AppSecret = appSecretFromEnv()
 	}
 	if m.AppSecret == "" {
 		return fmt.Errorf("the 'app_secret' directive is required")
@@ -227,30 +236,8 @@ func (m *WebsocketModule) applyDeliveryEnvOverrides() error {
 	return nil
 }
 
-func appSecretFromEnv(appID string) string {
-	if appID != "" {
-		if value := os.Getenv("WS_APP_SECRET_" + sanitizeEnvSuffix(appID)); value != "" {
-			return value
-		}
-	}
-	return os.Getenv("WS_APP_SECRET")
-}
-
-func sanitizeEnvSuffix(value string) string {
-	var b strings.Builder
-	for _, r := range value {
-		switch {
-		case r >= 'a' && r <= 'z':
-			b.WriteRune(r - 'a' + 'A')
-		case r >= 'A' && r <= 'Z':
-			b.WriteRune(r)
-		case r >= '0' && r <= '9':
-			b.WriteRune(r)
-		default:
-			b.WriteByte('_')
-		}
-	}
-	return b.String()
+func appSecretFromEnv() string {
+	return os.Getenv("REVERB_APP_SECRET")
 }
 
 func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
@@ -262,6 +249,11 @@ func (m *WebsocketModule) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 					return d.ArgErr()
 				}
 				m.AppID = d.Val()
+			case "app_key":
+				if !d.NextArg() {
+					return d.ArgErr()
+				}
+				m.AppKey = d.Val()
 			case "app_secret":
 				if !d.NextArg() {
 					return d.ArgErr()

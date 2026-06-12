@@ -71,7 +71,7 @@ func TestEndToEnd(t *testing.T) {
 	}()
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/app/test-app", port)
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/app/test-key", port)
 
 	if !waitForServer(baseURL) {
 		t.Fatalf("Server failed to start on port %d within timeout", port)

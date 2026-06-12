@@ -71,7 +71,7 @@ type channelAuthResponse struct {
 }
 
 type WorkerAuthProvider struct {
-	appID       string
+	appKey      string
 	worker      RequestDispatcher
 	authPath    string
 	logger      *zap.Logger
@@ -79,10 +79,10 @@ type WorkerAuthProvider struct {
 	breaker     *gobreaker.CircuitBreaker[AuthResult]
 	maxAuthBody int
 	sem         chan struct{}
-	secret      string // App Secret for local verification
+	secret      string
 }
 
-func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker RequestDispatcher, appID string, authPath string, maxAuthBody int, maxConcurrent int, secret string) *WorkerAuthProvider {
+func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker RequestDispatcher, appKey string, authPath string, maxAuthBody int, maxConcurrent int, secret string) *WorkerAuthProvider {
 	st := gobreaker.Settings{
 		Name:        "FrankenPHP-Auth-Worker",
 		MaxRequests: 1,
@@ -98,7 +98,7 @@ func NewWorkerAuthProvider(logger *zap.Logger, metrics *Metrics, worker RequestD
 	}
 
 	return &WorkerAuthProvider{
-		appID:       appID,
+		appKey:      appKey,
 		logger:      logger,
 		metrics:     metrics,
 		worker:      worker,
@@ -125,8 +125,8 @@ func (ap *WorkerAuthProvider) AuthenticateUser(client *Client, authSig string, u
 	}
 
 	// We ignore the key part (parts[0]) here and validate using our configured secret.
-	if parts[0] != ap.appID {
-		ap.logger.Warn("Auth: user signature app id mismatch", zap.String("id", client.ID))
+	if parts[0] != ap.appKey {
+		ap.logger.Warn("Auth: user signature app key mismatch", zap.String("id", client.ID))
 		return AuthResult{Allowed: false}
 	}
 
@@ -313,7 +313,7 @@ func (ap *WorkerAuthProvider) validateWorkerAuthResponse(client *Client, channel
 
 func (ap *WorkerAuthProvider) validateChannelSignature(socketID, channel, auth, channelData string) bool {
 	parts := strings.Split(auth, ":")
-	if len(parts) != 2 || parts[0] != ap.appID {
+	if len(parts) != 2 || parts[0] != ap.appKey {
 		return false
 	}
 	return validSignature(ap.secret, parts[1], channelStringToSign(socketID, channel, channelData))

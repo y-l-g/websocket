@@ -11,7 +11,8 @@ import (
 func TestWebsocketModuleDeliveryConfigDefaults(t *testing.T) {
 	m := WebsocketModule{
 		AppID:      "pogo-app",
-		AuthPath:   "/pogo/auth",
+		AppKey:     "pogo-key",
+		AuthPath:   "/broadcasting/auth",
 		AuthScript: "/tmp/auth.php",
 		AppSecret:  "test-secret",
 	}
@@ -37,7 +38,8 @@ func TestWebsocketModuleDeliveryConfigDefaults(t *testing.T) {
 func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`pogo_websocket {
 		app_id pogo-app
-		auth_path /pogo/auth
+		app_key pogo-key
+		auth_path /broadcasting/auth
 		auth_script /tmp/auth.php
 		app_secret test-secret
 		outbound_queue_size 128
@@ -75,7 +77,8 @@ func TestWebsocketModuleParsesDeliveryConfig(t *testing.T) {
 func TestWebsocketModuleRequiresAppSecret(t *testing.T) {
 	m := WebsocketModule{
 		AppID:      "pogo-app",
-		AuthPath:   "/pogo/auth",
+		AppKey:     "pogo-key",
+		AuthPath:   "/broadcasting/auth",
 		AuthScript: "/tmp/auth.php",
 	}
 
@@ -85,11 +88,12 @@ func TestWebsocketModuleRequiresAppSecret(t *testing.T) {
 }
 
 func TestWebsocketModuleUsesCanonicalAppSecretEnv(t *testing.T) {
-	t.Setenv("WS_APP_SECRET", "canonical-secret")
+	t.Setenv("REVERB_APP_SECRET", "canonical-secret")
 
 	m := WebsocketModule{
 		AppID:      "pogo-app",
-		AuthPath:   "/pogo/auth",
+		AppKey:     "pogo-key",
+		AuthPath:   "/broadcasting/auth",
 		AuthScript: "/tmp/auth.php",
 	}
 
@@ -101,26 +105,33 @@ func TestWebsocketModuleUsesCanonicalAppSecretEnv(t *testing.T) {
 	}
 }
 
-func TestWebsocketModuleSecretPrecedence(t *testing.T) {
-	t.Setenv("WS_APP_SECRET", "global-secret")
-	t.Setenv("WS_APP_SECRET_POGO_APP", "app-secret")
+func TestWebsocketModuleUsesReverbCredentialEnv(t *testing.T) {
+	t.Setenv("REVERB_APP_ID", "env-app")
+	t.Setenv("REVERB_APP_KEY", "env-key")
+	t.Setenv("REVERB_APP_SECRET", "env-secret")
 
 	m := WebsocketModule{
-		AppID:      "pogo-app",
-		AuthPath:   "/pogo/auth",
+		AuthPath:   "/broadcasting/auth",
 		AuthScript: "/tmp/auth.php",
 	}
 
 	if err := m.validateAndDefaults(); err != nil {
 		t.Fatalf("validateAndDefaults returned error: %v", err)
 	}
-	if m.AppSecret != "app-secret" {
-		t.Fatalf("AppSecret = %q, want app-secret", m.AppSecret)
+	if m.AppID != "env-app" {
+		t.Fatalf("AppID = %q, want env-app", m.AppID)
+	}
+	if m.AppKey != "env-key" {
+		t.Fatalf("AppKey = %q, want env-key", m.AppKey)
+	}
+	if m.AppSecret != "env-secret" {
+		t.Fatalf("AppSecret = %q, want env-secret", m.AppSecret)
 	}
 
 	explicit := WebsocketModule{
 		AppID:      "pogo-app",
-		AuthPath:   "/pogo/auth",
+		AppKey:     "pogo-key",
+		AuthPath:   "/broadcasting/auth",
 		AuthScript: "/tmp/auth.php",
 		AppSecret:  "explicit-secret",
 	}
@@ -135,7 +146,8 @@ func TestWebsocketModuleSecretPrecedence(t *testing.T) {
 func TestWebsocketModuleParsesShutdownTimeout(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`pogo_websocket {
 		app_id pogo-app
-		auth_path /pogo/auth
+		app_key pogo-key
+		auth_path /broadcasting/auth
 		auth_script /tmp/auth.php
 		app_secret test-secret
 		shutdown_timeout 250ms
@@ -181,7 +193,8 @@ func TestWebsocketModuleAppKeyFromPath(t *testing.T) {
 func TestWebsocketModuleParsesAllowedOrigins(t *testing.T) {
 	d := caddyfile.NewTestDispenser(`pogo_websocket {
 		app_id pogo-app
-		auth_path /pogo/auth
+		app_key pogo-key
+		auth_path /broadcasting/auth
 		auth_script /tmp/auth.php
 		app_secret test-secret
 		allowed_origins https://example.com https://app.example.com:8443
@@ -206,7 +219,8 @@ func TestWebsocketModuleParsesAllowedOrigins(t *testing.T) {
 func TestWebsocketModuleCheckOrigin(t *testing.T) {
 	m := WebsocketModule{
 		AppID:      "pogo-app",
-		AuthPath:   "/pogo/auth",
+		AppKey:     "pogo-key",
+		AuthPath:   "/broadcasting/auth",
 		AuthScript: "/tmp/auth.php",
 		AppSecret:  "test-secret",
 		logger:     zap.NewNop(),
@@ -279,7 +293,8 @@ func TestWebsocketModuleHandshakeLimiterIsPerRemoteAddr(t *testing.T) {
 func TestWebsocketModuleCheckOriginAllowlist(t *testing.T) {
 	m := WebsocketModule{
 		AppID:          "pogo-app",
-		AuthPath:       "/pogo/auth",
+		AppKey:         "pogo-key",
+		AuthPath:       "/broadcasting/auth",
 		AuthScript:     "/tmp/auth.php",
 		AppSecret:      "test-secret",
 		logger:         zap.NewNop(),
@@ -316,7 +331,8 @@ func TestWebsocketModuleRejectsRemovedFanoutDirectives(t *testing.T) {
 		t.Run(directive, func(t *testing.T) {
 			d := caddyfile.NewTestDispenser(`pogo_websocket {
 				app_id pogo-app
-				auth_path /pogo/auth
+				app_key pogo-key
+				auth_path /broadcasting/auth
 				auth_script /tmp/auth.php
 				app_secret test-secret
 				` + directive + `
@@ -336,11 +352,12 @@ func TestWebsocketModuleDeliveryConfigEnvOverrides(t *testing.T) {
 	t.Setenv("POGO_WS_SHARD_QUEUE_SIZE", "2048")
 	t.Setenv("POGO_WS_WRITE_BURST_SIZE", "8")
 	t.Setenv("POGO_WS_ENABLE_COMPRESSION", "true")
-	t.Setenv("WS_APP_SECRET", "test-secret")
+	t.Setenv("REVERB_APP_SECRET", "test-secret")
 
 	m := WebsocketModule{
 		AppID:             "pogo-app",
-		AuthPath:          "/pogo/auth",
+		AppKey:            "pogo-key",
+		AuthPath:          "/broadcasting/auth",
 		AuthScript:        "/tmp/auth.php",
 		OutboundQueueSize: DefaultOutboundQueueSize,
 		WriteBurstSize:    DefaultWriteBurstSize,
@@ -380,7 +397,8 @@ func TestWebsocketModuleRejectsRemovedFanoutEnvOverrides(t *testing.T) {
 
 			m := WebsocketModule{
 				AppID:      "pogo-app",
-				AuthPath:   "/pogo/auth",
+				AppKey:     "pogo-key",
+				AuthPath:   "/broadcasting/auth",
 				AuthScript: "/tmp/auth.php",
 				AppSecret:  "test-secret",
 			}

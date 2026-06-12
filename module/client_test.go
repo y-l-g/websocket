@@ -139,7 +139,7 @@ func (m *MockAuthProvider) Authorize(client *Client, channel string, auth string
 		})
 		return AuthResult{Allowed: true, UserData: raw}
 	}
-	return AuthResult{Allowed: true, UserData: json.RawMessage(`{"auth":"test-app:mock_signature"}`)}
+	return AuthResult{Allowed: true, UserData: json.RawMessage(`{"auth":"test-key:mock_signature"}`)}
 }
 func (m *MockAuthProvider) AuthenticateUser(client *Client, authSig string, userData string) AuthResult {
 	return AuthResult{Allowed: true, UserData: json.RawMessage(userData)}

@@ -113,7 +113,7 @@ func (m *WebsocketModule) ServeHTTP(w http.ResponseWriter, r *http.Request, next
 		return next.ServeHTTP(w, r)
 	}
 
-	if key := appKeyFromPath(r.URL.Path); key != m.AppID {
+	if key := appKeyFromPath(r.URL.Path); key != m.AppKey {
 		http.Error(w, "Invalid app key", http.StatusForbidden)
 		return nil
 	}

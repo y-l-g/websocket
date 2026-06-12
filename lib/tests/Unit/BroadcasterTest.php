@@ -29,7 +29,7 @@ class BroadcasterTest extends TestCase
         // Handle direct property access on mock
         $request->shouldReceive('__get')->with('channel_name')->andReturn('private-test');
 
-        $broadcaster = Mockery::mock(Broadcaster::class, [['app_id' => 'test-app', 'secret' => 'super-secret']])->makePartial();
+        $broadcaster = Mockery::mock(Broadcaster::class, [['app_id' => 'test-app', 'key' => 'test-key', 'secret' => 'super-secret']])->makePartial();
         $broadcaster->shouldAllowMockingProtectedMethods();
         $broadcaster->shouldReceive('verifyUserCanAccessChannel')->andReturn(true);
         $broadcaster->shouldReceive('normalizeChannelName')->andReturn('private-test');
@@ -38,18 +38,18 @@ class BroadcasterTest extends TestCase
 
         $this->assertIsArray($response);
         $expectedSig = hash_hmac('sha256', '1.1:private-test', 'super-secret');
-        $this->assertEquals('test-app:' . $expectedSig, $response['auth']);
+        $this->assertEquals('test-key:' . $expectedSig, $response['auth']);
     }
 
     public function testConstructorRequiresExplicitCredentials()
     {
         $this->expectException(InvalidArgumentException::class);
-        new Broadcaster(['app_id' => 'test-app']);
+        new Broadcaster(['app_id' => 'test-app', 'key' => 'test-key']);
     }
 
     public function testPresenceChannelReturnsUserData()
     {
-        $broadcaster = Mockery::mock(Broadcaster::class, [['app_id' => 'test-app', 'secret' => 'super-secret']])->makePartial();
+        $broadcaster = Mockery::mock(Broadcaster::class, [['app_id' => 'test-app', 'key' => 'test-key', 'secret' => 'super-secret']])->makePartial();
         $broadcaster->shouldAllowMockingProtectedMethods();
 
         $user = Mockery::mock(Authenticatable::class);
@@ -75,13 +75,14 @@ class BroadcasterTest extends TestCase
         $this->assertEquals($userInfo, $channelData['user_info']);
 
         $expectedSig = hash_hmac('sha256', '1.2:presence-chat:' . $response['channel_data'], 'super-secret');
-        $this->assertEquals('test-app:' . $expectedSig, $response['auth']);
+        $this->assertEquals('test-key:' . $expectedSig, $response['auth']);
     }
 
     public function testAuthenticateUser()
     {
         $broadcaster = new Broadcaster([
             'app_id' => 'test-app',
+            'key' => 'test-key',
             'secret' => 'my-secret',
         ]);
 
@@ -103,13 +104,13 @@ class BroadcasterTest extends TestCase
         $expectedString = "1.1::user::{$userDataJson}";
         $expectedSig = hash_hmac('sha256', $expectedString, 'my-secret');
 
-        $this->assertEquals("test-app:{$expectedSig}", $response['auth']);
+        $this->assertEquals("test-key:{$expectedSig}", $response['auth']);
         $this->assertEquals($userDataJson, $response['user_data']);
     }
 
     public function testBroadcastThrowsWhenExtensionMissing()
     {
-        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app', 'key' => 'test-key', 'secret' => 'super-secret']) extends Broadcaster {
             protected function hasBroadcastMulti(): bool
             {
                 return false;
@@ -128,7 +129,7 @@ class BroadcasterTest extends TestCase
 
     public function testBroadcastReportsNativeMultiFailure()
     {
-        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app', 'key' => 'test-key', 'secret' => 'super-secret']) extends Broadcaster {
             protected function hasBroadcastMulti(): bool
             {
                 return true;
@@ -148,7 +149,7 @@ class BroadcasterTest extends TestCase
 
     public function testBroadcastMultiSuccessDoesNotFallbackToSinglePublish()
     {
-        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app', 'key' => 'test-key', 'secret' => 'super-secret']) extends Broadcaster {
             public int $multiCalls = 0;
 
             public int $publishCalls = 0;
@@ -186,7 +187,7 @@ class BroadcasterTest extends TestCase
 
     public function testNonBenchmarkAndFailedPayloadEncodingKeepExistingBehavior()
     {
-        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app', 'key' => 'test-key', 'secret' => 'super-secret']) extends Broadcaster {
             /**
              * @param array<mixed> $payload
              * @return string|false
@@ -205,7 +206,7 @@ class BroadcasterTest extends TestCase
 
     public function testFailedPayloadEncodingThrowsBroadcastException()
     {
-        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app', 'key' => 'test-key', 'secret' => 'super-secret']) extends Broadcaster {
             /**
              * @param array<mixed> $payload
              * @return string|false
@@ -223,7 +224,7 @@ class BroadcasterTest extends TestCase
 
     public function testNativeStatusReasonsIncludeOverloadFailures()
     {
-        $broadcaster = new class (['app_id' => 'test-app', 'secret' => 'super-secret']) extends Broadcaster {
+        $broadcaster = new class (['app_id' => 'test-app', 'key' => 'test-key', 'secret' => 'super-secret']) extends Broadcaster {
             public function reasonFor(int $status): string
             {
                 return $this->nativeStatusReason($status);

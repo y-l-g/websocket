@@ -42,7 +42,7 @@ func TestCompliance(t *testing.T) {
 
 	configStr := string(caddyfileContent)
 	configStr = strings.ReplaceAll(configStr, ":9090", fmt.Sprintf(":%d", port))
-	configStr = strings.ReplaceAll(configStr, "app_id          test-app", "app_id          test-app\n            webhook_secret  super-secret-key")
+	configStr = strings.ReplaceAll(configStr, "app_key         test-key", "app_key         test-key\n            webhook_secret  super-secret-key")
 
 	tmpCaddyfile, err := os.CreateTemp("", "Caddyfile.*")
 	if err != nil {
@@ -70,7 +70,7 @@ func TestCompliance(t *testing.T) {
 	}()
 
 	baseURL := fmt.Sprintf("http://127.0.0.1:%d", port)
-	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/app/test-app", port)
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/app/test-key", port)
 
 	if !waitForServer(baseURL) {
 		t.Fatalf("Server failed to start")
@@ -141,7 +141,7 @@ func TestCompliance(t *testing.T) {
 		mac := hmac.New(sha256.New, []byte(secret))
 		mac.Write([]byte(toSign))
 		signature := hex.EncodeToString(mac.Sum(nil))
-		authSig := fmt.Sprintf("test-app:%s", signature)
+		authSig := fmt.Sprintf("test-key:%s", signature)
 
 		signinMsg := map[string]interface{}{
 			"event": "pusher:signin",

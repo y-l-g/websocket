@@ -41,7 +41,7 @@ func TestCluster(t *testing.T) {
 	node2 := startNode(t, binPath, rootDir, mr.Addr(), "node2")
 	defer node2.Stop()
 
-	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/app/test-app", node2.Port)
+	wsURL := fmt.Sprintf("ws://127.0.0.1:%d/app/test-key", node2.Port)
 	ws, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
 	if err != nil {
 		t.Fatalf("Dial Node 2 failed: %v", err)
@@ -120,6 +120,7 @@ func startNode(t *testing.T, binPath, rootDir, redisAddr, name string) *TestNode
     route /app/* {
         pogo_websocket {
             app_id          test-app
+            app_key         test-key
             app_secret      super-secret-key
             auth_path       /auth
             auth_script     tests/integration/fixtures/worker.php

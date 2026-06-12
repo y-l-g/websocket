@@ -5,9 +5,6 @@ namespace Pogo\WebSocket\Console;
 use Illuminate\Console\Command;
 use Illuminate\Filesystem\Filesystem;
 use Illuminate\Support\Env;
-use Illuminate\Support\Facades\Process;
-
-use function Laravel\Prompts\confirm;
 
 class InstallCommand extends Command
 {
@@ -17,35 +14,25 @@ class InstallCommand extends Command
 
     public function handle(): int
     {
-        $this->components->info('🐘 Installing Pogo WebSocket Engine...');
+        $this->components->info('Installing Pogo WebSocket for Laravel Reverb compatibility...');
 
-        $this->installOctaneWorker();
         $this->publishConfiguration();
         $this->installChannelsRoutes();
         $this->enableBroadcasting();
         $this->configureBroadcastingDriver();
         $this->updateEnvironmentFile();
         $this->installFrontendScaffolding();
-        $this->installNodeDependencies();
 
         $this->newLine();
-        $this->components->info('✅ Installation complete!');
+        $this->components->info('Installation complete.');
         $this->components->warn('Next steps:');
         $this->components->bulletList([
+            'Install frontend dependencies if needed: [npm install --save-dev laravel-echo pusher-js].',
             'Run [npm run build] to compile the frontend.',
-            'Restart FrankenPHP to load the new worker/config.',
+            'Restart FrankenPHP/Caddy with matching REVERB_APP_ID, REVERB_APP_KEY, and REVERB_APP_SECRET.',
         ]);
 
         return self::SUCCESS;
-    }
-
-    protected function installOctaneWorker(): void
-    {
-        $this->call('octane:install', ['--server' => 'frankenphp']);
-
-        if (file_exists(public_path('frankenphp-worker.php'))) {
-            copy(public_path('frankenphp-worker.php'), public_path('websocket-worker.php'));
-        }
     }
 
     protected function publishConfiguration(): void
@@ -115,15 +102,23 @@ class InstallCommand extends Command
 
         $content = $filesystem->get($configPath);
 
-        if (str_contains($content, "'pogo' => [")) {
+        if (str_contains($content, "'reverb' => [")) {
             return;
         }
 
         $driverConfig = <<<'CONFIG'
-                    'pogo' => [
-                        'driver' => 'pogo',
-                        'app_id' => env('WS_APP_ID'),
-                        'secret' => env('WS_APP_SECRET'),
+                    'reverb' => [
+                        'driver' => 'reverb',
+                        'key' => env('REVERB_APP_KEY'),
+                        'secret' => env('REVERB_APP_SECRET'),
+                        'app_id' => env('REVERB_APP_ID'),
+                        'options' => [
+                            'host' => env('REVERB_HOST', '127.0.0.1'),
+                            'port' => env('REVERB_PORT', 8080),
+                            'scheme' => env('REVERB_SCHEME', 'http'),
+                            'useTLS' => env('REVERB_SCHEME', 'http') === 'https',
+                        ],
+                        'client_options' => [],
                     ],
 
             CONFIG;
@@ -148,14 +143,37 @@ class InstallCommand extends Command
             return;
         }
 
+        $appId = $this->envString('REVERB_APP_ID', 'pogo-app');
+        $appKey = $this->envString('REVERB_APP_KEY', bin2hex(random_bytes(16)));
+        $appSecret = $this->envString('REVERB_APP_SECRET', bin2hex(random_bytes(32)));
+        $host = $this->envString('REVERB_HOST', 'localhost');
+        $port = $this->envString('REVERB_PORT', '8080');
+        $scheme = $this->envString('REVERB_SCHEME', 'http');
+
         Env::writeVariables([
-            'BROADCAST_CONNECTION' => 'pogo',
-            'WS_APP_ID' => 'pogo-app',
-            'WS_APP_SECRET' => bin2hex(random_bytes(32)),
-            'VITE_POGO_APP_KEY' => 'pogo-app',
-            'VITE_POGO_PORT' => '80',
-            'VITE_POGO_WSS_PORT' => '443',
+            'BROADCAST_CONNECTION' => 'reverb',
+            'REVERB_APP_ID' => $appId,
+            'REVERB_APP_KEY' => $appKey,
+            'REVERB_APP_SECRET' => $appSecret,
+            'REVERB_HOST' => $host,
+            'REVERB_PORT' => $port,
+            'REVERB_SCHEME' => $scheme,
+            'VITE_REVERB_APP_KEY' => $appKey,
+            'VITE_REVERB_HOST' => $host,
+            'VITE_REVERB_PORT' => $port,
+            'VITE_REVERB_SCHEME' => $scheme,
         ], $envPath);
+    }
+
+    protected function envString(string $key, string $default): string
+    {
+        $value = Env::get($key);
+
+        if (is_string($value) && $value !== '') {
+            return $value;
+        }
+
+        return $default;
     }
 
     protected function installFrontendScaffolding(): void
@@ -177,19 +195,14 @@ class InstallCommand extends Command
                 window.Pusher = Pusher;
 
                 window.Echo = new Echo({
-                    broadcaster: 'pusher',
-                    key: import.meta.env.VITE_POGO_APP_KEY || 'pogo-app',
-                    cluster: 'mt1',
-                    wsHost: import.meta.env.VITE_POGO_HOST || window.location.hostname,
-                    wsPort: import.meta.env.VITE_POGO_PORT || 80,
-                    wssPort: import.meta.env.VITE_POGO_WSS_PORT || 443,
-                    forceTLS: false,
+                    broadcaster: 'reverb',
+                    key: import.meta.env.VITE_REVERB_APP_KEY,
+                    wsHost: import.meta.env.VITE_REVERB_HOST || window.location.hostname,
+                    wsPort: import.meta.env.VITE_REVERB_PORT || 80,
+                    wssPort: import.meta.env.VITE_REVERB_PORT || 443,
+                    forceTLS: (import.meta.env.VITE_REVERB_SCHEME || 'https') === 'https',
                     disableStats: true,
                     enabledTransports: ['ws', 'wss'],
-                    authEndpoint: "/pogo/auth",
-                    userAuthentication: {
-                        endpoint: "/pogo/user-auth"
-                    }
                 });
                 JS;
             $filesystem->put($echoScriptPath, $jsContent);
@@ -210,39 +223,6 @@ class InstallCommand extends Command
                 }
                 break;
             }
-        }
-    }
-
-    protected function installNodeDependencies(): void
-    {
-        if (!confirm('Run Laravel broadcasting scaffolding (npm install)?', default: true)) {
-            return;
-        }
-
-        $packages = 'laravel-echo pusher-js';
-        $commands = [];
-
-        if (file_exists(base_path('pnpm-lock.yaml'))) {
-            $commands = ["pnpm add -D $packages"];
-        } elseif (file_exists(base_path('yarn.lock'))) {
-            $commands = ["yarn add -D $packages"];
-        } elseif (file_exists(base_path('bun.lockb'))) {
-            $commands = ["bun add -D $packages"];
-        } else {
-            $commands = ["npm install --save-dev $packages"];
-        }
-
-        $command = Process::command(implode(' && ', $commands))
-            ->path(base_path());
-
-        if (!windows_os()) {
-            $command->tty(true);
-        }
-
-        if ($command->run()->failed()) {
-            $this->components->warn("Node dependency installation failed. Please run: " . implode(' && ', $commands));
-        } else {
-            $this->components->info('Node dependencies installed successfully.');
         }
     }
 }

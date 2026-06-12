@@ -22,6 +22,7 @@ func init() {
 
 type WebsocketModule struct {
 	AppID              string   `json:"app_id,omitempty"`
+	AppKey             string   `json:"app_key,omitempty"`
 	AppSecret          string   `json:"app_secret,omitempty"`
 	AuthPath           string   `json:"auth_path,omitempty"`
 	AuthScript         string   `json:"auth_script,omitempty"`
@@ -104,7 +105,7 @@ func (m *WebsocketModule) Provision(ctx caddy.Context) error {
 		m.logger,
 		m.metrics,
 		m.workerHandle,
-		m.AppID,
+		m.AppKey,
 		m.AuthPath,
 		m.MaxAuthBody,
 		m.MaxConcurrentAuth,

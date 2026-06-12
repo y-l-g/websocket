@@ -84,7 +84,7 @@ COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
 
 Then copy your app and `Caddyfile` into the runner image as usual.
 
-### Step 2: Install the Laravel Broadcast Driver
+### Step 2: Install the Laravel Reverb-compatible package
 
 ```bash
 composer require pogo/websocket
@@ -121,9 +121,10 @@ Configure the module within your `Caddyfile` at the root of your laravel project
 
     route /app/* {
         pogo_websocket {
-            app_id          pogo-app
-            app_secret      {$WS_APP_SECRET}
-            auth_path       /pogo/auth
+            app_id          {$REVERB_APP_ID}
+            app_key         {$REVERB_APP_KEY}
+            app_secret      {$REVERB_APP_SECRET}
+            auth_path       /broadcasting/auth
             auth_script     public/websocket-worker.php
             webhook_secret  {$POGO_WEBHOOK_SECRET}
             allowed_origins https://app.example.com https://admin.example.com
@@ -182,32 +183,33 @@ Native publish functions return `0` on success. Nonzero status codes indicate:
 JSON, `8` broker queue full, and `9` shard queue full. Success means the message
 was accepted by the broker and shard queue; delivery to every connected client is
 at-most-once and may still fail for slow clients with full outbound queues. The
-Laravel broadcaster turns native failures into `BroadcastException`.
+optional native Laravel broadcaster turns native failures into
+`BroadcastException`.
 
 Fill your .env
 
 ```ini
-BROADCAST_CONNECTION=pogo
-WS_APP_ID=pogo-app
-WS_APP_SECRET=change-me-to-a-long-random-secret
+BROADCAST_CONNECTION=reverb
+REVERB_APP_ID=pogo-app
+REVERB_APP_KEY=change-me-to-a-random-public-app-key
+REVERB_APP_SECRET=change-me-to-a-long-random-secret
+REVERB_HOST=localhost
+REVERB_PORT=8080
+REVERB_SCHEME=http
 POGO_WEBHOOK_SECRET=change-me-to-a-different-random-secret
 
-VITE_POGO_APP_KEY="${WS_APP_ID}"
-VITE_POGO_HOST=localhost #your site adress
-VITE_POGO_PORT=80 #your site port
-VITE_POGO_WSS_PORT=443 #your site port
+VITE_REVERB_APP_KEY="${REVERB_APP_KEY}"
+VITE_REVERB_HOST="${REVERB_HOST}"
+VITE_REVERB_PORT="${REVERB_PORT}"
+VITE_REVERB_SCHEME="${REVERB_SCHEME}"
 ```
 
-For multiple apps in one process, an explicit `app_secret` in the Caddyfile wins.
-If it is omitted, the module checks `WS_APP_SECRET_<APP_ID>` where non
-alphanumeric characters in the app id are converted to `_`, then falls back to
-`WS_APP_SECRET`.
+If `app_id`, `app_key`, or `app_secret` are omitted in the Caddyfile, the module
+reads `REVERB_APP_ID`, `REVERB_APP_KEY`, and `REVERB_APP_SECRET`.
 
-Start octane (`frankenphp` must be compiled with `pogo_websocket`).
+Start FrankenPHP (`frankenphp` must be compiled with `pogo_websocket`).
 
 ```bash
-php artisan octane:start --caddyfile=Caddyfile
-# or
 frankenphp run --caddyfile=Caddyfile
 # or
 frankenphp run --config Caddyfile
@@ -237,9 +239,9 @@ Set `POGO_WS_HOT_PATH_METRICS=true` to enable detailed per-message fanout, queue
 - Redis clustering uses Redis Pub/Sub. Messages are not persisted, replayed, or
   acknowledged across nodes; messages can be lost during Redis outages,
   reconnects, or local overload.
-- `/pogo/auth` and `/pogo/user-auth` are CSRF-exempt because they are called by
-  WebSocket clients. Protect them with normal Laravel authentication,
-  same-site/session settings, and the WebSocket `allowed_origins` policy.
+- Laravel's standard `/broadcasting/auth` endpoint signs private and presence
+  channel subscriptions. The module validates those Pusher-compatible signatures
+  locally before joining the channel.
 - Webhook notifications are best-effort and may be dropped when the webhook queue
   is full or the module is shutting down.
 
@@ -248,5 +250,6 @@ Set `POGO_WS_HOT_PATH_METRICS=true` to enable detailed per-message fanout, queue
 ## Troubleshooting
 
 - **4100 Over Capacity:** Increase `max_connections` in Caddyfile.
-- **4009 Connection Unauthorized:** Check `app_secret` matches `WS_APP_SECRET`.
+- **4009 Connection Unauthorized:** Check `REVERB_APP_KEY` and
+  `REVERB_APP_SECRET` match between Laravel and the Caddyfile.
 - **Too Many Requests:** Tune `handshake_rate` if legitimate traffic is being blocked.
