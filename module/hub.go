@@ -129,6 +129,7 @@ type Hub struct {
 }
 
 type BroadcastMessage struct {
+	AppID             string             `json:"app_id"`
 	Channel           string             `json:"channel"`
 	Event             string             `json:"event"`
 	Data              json.RawMessage    `json:"data"`
@@ -422,6 +423,7 @@ func (h *Hub) publishWithOptions(channel, event, data string, options PublishOpt
 	raw := json.RawMessage(data)
 
 	msg := &BroadcastMessage{
+		AppID:             h.AppID,
 		Channel:           channel,
 		Event:             event,
 		Data:              raw,

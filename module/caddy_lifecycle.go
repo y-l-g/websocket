@@ -17,7 +17,7 @@ func (m *WebsocketModule) setupWorkers() error {
 func (m *WebsocketModule) setupBroker() (Broker, error) {
 	if m.RedisHost != "" {
 		m.logger.Info("Using Redis Broker", zap.String("host", m.RedisHost), zap.Int("db", m.RedisDB), zap.Bool("tls", m.RedisTLS))
-		return NewRedisBroker(m.logger, m.RedisHost, m.RedisPassword, m.RedisDB, m.RedisTLS, m.BrokerQueueSize), nil
+		return NewRedisBroker(m.logger, m.AppID, m.RedisHost, m.RedisPassword, m.RedisDB, m.RedisTLS, m.BrokerQueueSize), nil
 	}
 	m.logger.Info("Using Memory Broker")
 	return NewMemoryBroker(m.logger, m.metrics, m.BrokerQueueSize), nil

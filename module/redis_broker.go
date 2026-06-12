@@ -14,13 +14,15 @@ import (
 const RedisChannelName = "frankenphp:cluster:broadcast"
 
 type RedisBroker struct {
-	client    *redis.Client
-	logger    *zap.Logger
-	scope     string
-	queueSize int
+	client      *redis.Client
+	logger      *zap.Logger
+	appID       string
+	channelName string
+	scope       string
+	queueSize   int
 }
 
-func NewRedisBroker(logger *zap.Logger, addr, password string, db int, useTLS bool, queueSize ...int) *RedisBroker {
+func NewRedisBroker(logger *zap.Logger, appID, addr, password string, db int, useTLS bool, queueSize ...int) *RedisBroker {
 	if addr == "" {
 		addr = "localhost:6379"
 	}
@@ -42,16 +44,29 @@ func NewRedisBroker(logger *zap.Logger, addr, password string, db int, useTLS bo
 	}
 
 	rdb := redis.NewClient(opts)
+	channelName := redisChannelName(appID)
 
 	return &RedisBroker{
-		client:    rdb,
-		logger:    logger,
-		scope:     fmt.Sprintf("redis:%s:%d:%s", addr, db, RedisChannelName),
-		queueSize: size,
+		client:      rdb,
+		logger:      logger,
+		appID:       appID,
+		channelName: channelName,
+		scope:       fmt.Sprintf("redis:%s:%d:%s", addr, db, channelName),
+		queueSize:   size,
 	}
 }
 
+func redisChannelName(appID string) string {
+	return RedisChannelName + ":" + appID
+}
+
 func (r *RedisBroker) Publish(ctx context.Context, msg *BroadcastMessage) error {
+	if msg.AppID == "" {
+		copy := *msg
+		copy.AppID = r.appID
+		msg = &copy
+	}
+
 	data, err := SerializeBroadcast(msg)
 	if err != nil {
 		return err
@@ -71,7 +86,7 @@ func (r *RedisBroker) Publish(ctx context.Context, msg *BroadcastMessage) error 
 			}
 		}
 
-		err = r.client.Publish(ctx, RedisChannelName, data).Err()
+		err = r.client.Publish(ctx, r.channelName, data).Err()
 		if err == nil {
 			return nil
 		}
@@ -97,7 +112,7 @@ func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, 
 			default:
 			}
 
-			pubsub := r.client.Subscribe(ctx, RedisChannelName)
+			pubsub := r.client.Subscribe(ctx, r.channelName)
 			if _, err := pubsub.Receive(ctx); err != nil {
 				_ = pubsub.Close()
 
@@ -123,7 +138,7 @@ func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, 
 
 			// Connection established, reset attempts
 			attempt = 0
-			r.logger.Info("Redis: subscribed to broadcast channel")
+			r.logger.Info("Redis: subscribed to broadcast channel", zap.String("channel", r.channelName))
 
 			ch := pubsub.Channel()
 
@@ -140,6 +155,12 @@ func (r *RedisBroker) Subscribe(ctx context.Context) (<-chan *BroadcastMessage, 
 					if err != nil {
 						r.logger.Error("Redis: deserialize error", zap.Error(err))
 						continue
+					}
+					if msg.AppID != "" && msg.AppID != r.appID {
+						continue
+					}
+					if msg.AppID == "" {
+						msg.AppID = r.appID
 					}
 
 					select {
