@@ -72,14 +72,14 @@ COPY . /src/websocket
 
 RUN CGO_ENABLED=1 \
     XCADDY_SETCAP=1 \
-    XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx" \
+    XCADDY_GO_BUILD_FLAGS="-ldflags='-w -s' -tags=nobadger,nomysql,nopgx,nowatcher" \
     CGO_CFLAGS="$(php-config --includes)" \
     CGO_LDFLAGS="$(php-config --ldflags) $(php-config --libs)" \
     xcaddy build \
         --output /usr/local/bin/frankenphp \
-        --with github.com/dunglas/frankenphp=./ \
-        --with github.com/dunglas/frankenphp/caddy=./caddy  \
-        --with github.com/dunglas/caddy-cbrotli \
+        --with github.com/dunglas/frankenphp@v1.12.4 \
+        --with github.com/dunglas/frankenphp/caddy@v1.12.4 \
+        --with github.com/dunglas/caddy-cbrotli@v1.0.1 \
         --with github.com/y-l-g/websocket/module=./src/websocket/module
 
 FROM dunglas/frankenphp AS runner

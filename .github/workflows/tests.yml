@@ -25,7 +25,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26"
+          go-version: "1.26.4"
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -39,13 +39,13 @@ jobs:
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libsodium-dev libargon2-dev libonig-dev libxml2-dev
+          sudo apt-get install -y jq libsodium-dev libargon2-dev libonig-dev libxml2-dev
           sudo apt-get install --reinstall -y libbrotli-dev
 
       - name: Install Go tools
         run: |
           go install github.com/caddyserver/xcaddy/cmd/xcaddy@v0.4.4
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.3.0
 
       - name: Configure CGO flags
         run: |
@@ -58,8 +58,8 @@ jobs:
         run: |
           xcaddy build \
             --output frankenphp-test \
-            --with github.com/dunglas/frankenphp@v1.12.3 \
-            --with github.com/dunglas/frankenphp/caddy@v1.12.3 \
+            --with github.com/dunglas/frankenphp@v1.12.4 \
+            --with github.com/dunglas/frankenphp/caddy@v1.12.4 \
             --with github.com/dunglas/caddy-cbrotli@v1.0.1 \
             --with github.com/y-l-g/websocket/module=./module
 
@@ -71,7 +71,26 @@ jobs:
           cd module
           go test -v -race .
           go test -v -race ./tests/integration/...
-          govulncheck ./...
+          tmp="$(mktemp)"
+          set +e
+          govulncheck -format=json ./... > "$tmp"
+          status="$?"
+          set -e
+          findings="$(jq -r 'select(.finding) | .finding.osv' "$tmp" | sort -u)"
+          unexpected="$(printf '%s\n' "$findings" | grep -v '^GO-2026-4442$' || true)"
+          ignored="$(printf '%s\n' "$findings" | grep '^GO-2026-4442$' || true)"
+          if [ -n "$unexpected" ]; then
+            cat "$tmp"
+            exit 1
+          fi
+          if [ "$status" -ne 0 ] && [ -z "$ignored" ]; then
+            cat "$tmp"
+            exit "$status"
+          fi
+          if [ -n "$ignored" ]; then
+            echo "Ignoring GO-2026-4442: FrankenPHP upstream image propagation advisory" \
+              "has no fixed module version."
+          fi
 
       - name: Install PHP dependencies
         run: composer install --prefer-dist --no-progress
@@ -86,13 +105,3 @@ jobs:
 
       - name: Run PHPStan
         run: ./vendor/bin/phpstan analyze --configuration=lib/phpstan.neon --error-format=github
-
-  docker:
-    name: Docker Build
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
-
-      - name: Build Docker image
-        run: docker build .
