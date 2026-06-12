@@ -72,14 +72,6 @@ func UnregisterHub(appID string, h *Hub) {
 	}
 }
 
-func GetHub(appID string) *Hub {
-	hubs := GetHubs(appID)
-	if len(hubs) == 0 {
-		return nil
-	}
-	return hubs[0]
-}
-
 func GetHubs(appID string) []*Hub {
 	if val, ok := hubRegistry.Load(appID); ok {
 		set := val.(*hubSet)
@@ -105,16 +97,12 @@ type Hub struct {
 	shards  []*HubShard
 
 	// Config
-	maxConnections     int64
-	numShards          int
-	activityTimeout    int // Seconds
-	outboundQueueSize  int
-	writeBurstSize     int
-	clientMsgRateLimit float64
-	clientMsgRateBurst int
-	shutdownTimeout    time.Duration
-	healthy            atomic.Bool
-	healthErr          atomic.Value
+	maxConnections  int64
+	numShards       int
+	activityTimeout int // Seconds
+	shutdownTimeout time.Duration
+	healthy         atomic.Bool
+	healthErr       atomic.Value
 
 	// Synchronization
 	clientsMu sync.RWMutex
@@ -226,26 +214,22 @@ func NewHub(appID string, logger *zap.Logger, ctx context.Context, metrics *Metr
 	}
 
 	h := &Hub{
-		AppID:              appID,
-		auth:               auth,
-		broker:             broker,
-		logger:             logger,
-		metrics:            metrics,
-		ctx:                ctx,
-		maxConnections:     int64(maxConn),
-		numShards:          numShards,
-		activityTimeout:    timeoutSec,
-		outboundQueueSize:  delivery.OutboundQueueSize,
-		writeBurstSize:     delivery.WriteBurstSize,
-		clientMsgRateLimit: delivery.ClientMsgRateLimit,
-		clientMsgRateBurst: delivery.ClientMsgRateBurst,
-		shutdownTimeout:    delivery.ShutdownTimeout,
-		done:               make(chan struct{}),
-		clientMessage:      make(chan *ClientMessageWrapper, delivery.ShardQueueSize),
-		subscribe:          make(chan *Subscription, delivery.ShardQueueSize),
-		unsubscribe:        make(chan *Subscription, delivery.ShardQueueSize),
-		shards:             make([]*HubShard, numShards),
-		clients:            make(map[*Client]bool),
+		AppID:           appID,
+		auth:            auth,
+		broker:          broker,
+		logger:          logger,
+		metrics:         metrics,
+		ctx:             ctx,
+		maxConnections:  int64(maxConn),
+		numShards:       numShards,
+		activityTimeout: timeoutSec,
+		shutdownTimeout: delivery.ShutdownTimeout,
+		done:            make(chan struct{}),
+		clientMessage:   make(chan *ClientMessageWrapper, delivery.ShardQueueSize),
+		subscribe:       make(chan *Subscription, delivery.ShardQueueSize),
+		unsubscribe:     make(chan *Subscription, delivery.ShardQueueSize),
+		shards:          make([]*HubShard, numShards),
+		clients:         make(map[*Client]bool),
 	}
 
 	for i := 0; i < numShards; i++ {

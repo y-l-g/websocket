@@ -6,6 +6,10 @@ import (
 )
 
 func (m *WebsocketModule) setupWorkers() error {
+	if m.AuthScript == "" {
+		return nil
+	}
+
 	m.workerHandle = frankenphpCaddy.RegisterWorkers(
 		"frankenphp-websocket-auth-"+m.AppID,
 		m.AuthScript,

@@ -19,7 +19,6 @@ const (
 	DefaultWriteWait      = 10 * time.Second
 	DefaultPongWait       = 60 * time.Second
 	DefaultPingPeriod     = (DefaultPongWait * 9) / 10
-	maxMessageSize        = 512
 	DefaultWriteBurstSize = 64
 )
 
@@ -294,17 +293,6 @@ func (c *Client) handleMessage(message []byte) {
 			c.Send(errPayload)
 		}
 	}
-}
-
-func (c *Client) SendError(code int, message string) {
-	errMsg, _ := json.Marshal(map[string]interface{}{
-		"event": protocol.EventError,
-		"data": map[string]interface{}{
-			"code":    code,
-			"message": message,
-		},
-	})
-	c.Send(errMsg)
 }
 
 func (c *Client) writePump() {

@@ -146,6 +146,13 @@ func (ap *WorkerAuthProvider) Authorize(client *Client, channel string, auth str
 	if auth != "" {
 		return ap.authorizeProvidedSignature(client, channel, auth, channelData)
 	}
+	if ap.worker == nil {
+		if ap.metrics != nil {
+			ap.metrics.AuthFailures.WithLabelValues("missing_signature").Inc()
+		}
+		ap.logger.Warn("Auth: subscription auth signature missing and no auth worker configured", zap.String("id", client.ID), zap.String("channel", channel))
+		return AuthResult{Allowed: false}
+	}
 
 	select {
 	case ap.sem <- struct{}{}:

@@ -87,6 +87,50 @@ func TestWebsocketModuleRequiresAppSecret(t *testing.T) {
 	}
 }
 
+func TestWebsocketModuleAuthWorkerIsOptional(t *testing.T) {
+	m := WebsocketModule{
+		AppID:     "pogo-app",
+		AppKey:    "pogo-key",
+		AppSecret: "test-secret",
+	}
+
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+	if m.AuthPath != "" {
+		t.Fatalf("AuthPath = %q, want empty without auth worker", m.AuthPath)
+	}
+}
+
+func TestWebsocketModuleAuthScriptDefaultsAuthPath(t *testing.T) {
+	m := WebsocketModule{
+		AppID:      "pogo-app",
+		AppKey:     "pogo-key",
+		AppSecret:  "test-secret",
+		AuthScript: "/tmp/auth.php",
+	}
+
+	if err := m.validateAndDefaults(); err != nil {
+		t.Fatalf("validateAndDefaults returned error: %v", err)
+	}
+	if m.AuthPath != "/broadcasting/auth" {
+		t.Fatalf("AuthPath = %q, want /broadcasting/auth", m.AuthPath)
+	}
+}
+
+func TestWebsocketModuleRejectsAuthPathWithoutWorker(t *testing.T) {
+	m := WebsocketModule{
+		AppID:     "pogo-app",
+		AppKey:    "pogo-key",
+		AppSecret: "test-secret",
+		AuthPath:  "/broadcasting/auth",
+	}
+
+	if err := m.validateAndDefaults(); err == nil {
+		t.Fatal("validateAndDefaults accepted auth_path without auth_script")
+	}
+}
+
 func TestWebsocketModuleUsesCanonicalAppSecretEnv(t *testing.T) {
 	t.Setenv("REVERB_APP_SECRET", "canonical-secret")
 

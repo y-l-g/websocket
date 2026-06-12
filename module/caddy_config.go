@@ -25,11 +25,11 @@ func (m *WebsocketModule) validateAndDefaults() error {
 	if m.AppKey == "" {
 		return fmt.Errorf("the 'app_key' directive or REVERB_APP_KEY environment variable is required")
 	}
-	if m.AuthScript == "" {
-		return fmt.Errorf("the 'auth_script' directive is required")
+	if m.AuthScript != "" && m.AuthPath == "" {
+		m.AuthPath = "/broadcasting/auth"
 	}
-	if m.AuthPath == "" {
-		return fmt.Errorf("the 'auth_path' directive is required")
+	if m.AuthScript == "" && m.AuthPath != "" {
+		return fmt.Errorf("the 'auth_script' directive is required when auth_path is configured")
 	}
 	if m.AppSecret == "" {
 		m.AppSecret = appSecretFromEnv()

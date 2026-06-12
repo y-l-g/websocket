@@ -65,6 +65,15 @@ func TestAuthorizeProvidedChannelSignature(t *testing.T) {
 	}
 }
 
+func TestAuthorizeWithoutSignatureRequiresWorker(t *testing.T) {
+	auth := NewWorkerAuthProvider(zap.NewNop(), NewMetrics(prometheus.NewRegistry()), nil, "test-key", "", 1024, 100, "secret")
+	client := &Client{ID: "1.1"}
+
+	if res := auth.Authorize(client, "private-test", "", ""); res.Allowed {
+		t.Fatal("Expected missing signature without worker to be denied")
+	}
+}
+
 func (m *MockWorker) SendRequest(w http.ResponseWriter, r *http.Request) error {
 	if m.Delay > 0 {
 		time.Sleep(m.Delay)

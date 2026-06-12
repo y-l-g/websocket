@@ -4,7 +4,8 @@
 
 - A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
 - CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_broadcast_multi` allow PHP to broadcast messages instantly and return native status codes for precise failures.
-- The Caddy module uses FrankenPHP's `ExtensionWorker` API to invoke a dedicated pool of PHP threads for authentication, avoiding network overhead.
+- Optional FrankenPHP `ExtensionWorker` authentication fallback for clients that
+  do not send standard Pusher channel signatures.
 
 ---
 
@@ -129,8 +130,6 @@ Configure the module within your `Caddyfile` at the root of your laravel project
             app_id          {$REVERB_APP_ID}
             app_key         {$REVERB_APP_KEY}
             app_secret      {$REVERB_APP_SECRET}
-            auth_path       /broadcasting/auth
-            auth_script     public/websocket-worker.php
             webhook_secret  {$POGO_WEBHOOK_SECRET}
             allowed_origins https://app.example.com https://admin.example.com
 
@@ -142,7 +141,9 @@ Configure the module within your `Caddyfile` at the root of your laravel project
             broker_queue_size 1024      # Internal broker queue before publish fails fast
             shard_queue_size 1024       # Per-shard control/broadcast queue
 
-            num_workers     2           # Number of PHP workers dedicated to Auth
+            # auth_script     public/frankenphp-worker.php
+            # auth_path       /broadcasting/auth
+            # num_workers     2         # Optional PHP auth fallback workers
             num_shards      8           # Internal sharding (Default: 2 * CPU Cores)
 
             ping_period     54s         # Server Ping interval
@@ -176,11 +177,13 @@ Handshake throttling is applied per direct remote IP address. If FrankenPHP sits
 behind a reverse proxy or load balancer that hides client IPs, enforce per-client
 rate limits at that proxy layer as well.
 
-Private and presence channel auth accepts standard Pusher signatures:
+Private and presence channel auth accepts standard Pusher signatures from
+Laravel's `/broadcasting/auth` endpoint:
 `socket_id:channel` for private channels and
-`socket_id:channel:channel_data` for presence channels. If a client omits
-`auth`, the module falls back to the configured FrankenPHP auth worker and
-validates the worker's returned signature before subscribing the client.
+`socket_id:channel:channel_data` for presence channels. If `auth_script` is
+configured and a client omits `auth`, the module falls back to a FrankenPHP auth
+worker and validates the worker's returned signature before subscribing the
+client.
 
 Native publish functions return `0` on success. Nonzero status codes indicate:
 `1` hub missing, `2` channel too long, `3` event too long, `4` payload too large,
