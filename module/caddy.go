@@ -16,7 +16,7 @@ import (
 )
 
 func init() {
-	caddy.RegisterModule(WebsocketModule{})
+	caddy.RegisterModule((*WebsocketModule)(nil))
 	httpcaddyfile.RegisterHandlerDirective("pogo_websocket", parseCaddyfile)
 }
 
@@ -83,7 +83,7 @@ const (
 	maxHandshakeLimiters = 4096
 )
 
-func (WebsocketModule) CaddyModule() caddy.ModuleInfo {
+func (*WebsocketModule) CaddyModule() caddy.ModuleInfo {
 	return caddy.ModuleInfo{
 		ID:  "http.handlers.pogo_websocket",
 		New: func() caddy.Module { return new(WebsocketModule) },
