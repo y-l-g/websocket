@@ -45,6 +45,7 @@ type Client struct {
 	cancel  context.CancelFunc
 
 	shardMask uint64
+	userID    atomic.Value
 
 	PingPeriod     time.Duration
 	WriteWait      time.Duration
@@ -68,6 +69,27 @@ func (c *Client) HasShard(id int) bool {
 	}
 	mask := atomic.LoadUint64(&c.shardMask)
 	return (mask & (uint64(1) << id)) != 0
+}
+
+func (c *Client) SetUserID(userID string) {
+	c.userID.Store(userID)
+}
+
+func (c *Client) UserID() string {
+	value := c.userID.Load()
+	if userID, ok := value.(string); ok {
+		return userID
+	}
+	return ""
+}
+
+func (c *Client) Disconnect() {
+	if c.cancel != nil {
+		c.cancel()
+	}
+	if c.conn != nil {
+		_ = c.conn.Close()
+	}
 }
 
 type ClientMessage struct {
@@ -273,6 +295,10 @@ func (c *Client) handleMessage(message []byte) {
 
 		result := c.hub.auth.AuthenticateUser(c, signin.Auth, signin.UserData)
 		if result.Allowed {
+			if userID := signedInUserID(result.UserData); userID != "" {
+				c.SetUserID(userID)
+			}
+
 			// Success: pusher:signin_success with user_data
 			respPayload, _ := json.Marshal(map[string]interface{}{
 				"event": protocol.EventSigninSuccess,
@@ -293,6 +319,27 @@ func (c *Client) handleMessage(message []byte) {
 			c.Send(errPayload)
 		}
 	}
+}
+
+func signedInUserID(userData json.RawMessage) string {
+	var data struct {
+		ID json.RawMessage `json:"id"`
+	}
+	if err := json.Unmarshal(userData, &data); err != nil || len(data.ID) == 0 {
+		return ""
+	}
+
+	var stringID string
+	if err := json.Unmarshal(data.ID, &stringID); err == nil {
+		return stringID
+	}
+
+	var numberID json.Number
+	if err := json.Unmarshal(data.ID, &numberID); err == nil {
+		return numberID.String()
+	}
+
+	return strings.Trim(string(data.ID), `"`)
 }
 
 func (c *Client) writePump() {

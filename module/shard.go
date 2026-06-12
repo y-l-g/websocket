@@ -16,9 +16,15 @@ type HubShard struct {
 	unsubscribe chan *Subscription
 	clientMsg   chan *ClientMessageWrapper
 	cleanup     chan *Client
+	manage      chan subscriptionOperation
 	logger      *zap.Logger
 	metrics     *Metrics
 	ctx         context.Context
+}
+
+type subscriptionOperation struct {
+	fn   func(*SubscriptionManager)
+	done chan struct{}
 }
 
 func NewHubShard(id int, appID string, logger *zap.Logger, ctx context.Context, metrics *Metrics, webhook *WebhookManager, queueSize int) *HubShard {
@@ -34,6 +40,7 @@ func NewHubShard(id int, appID string, logger *zap.Logger, ctx context.Context, 
 		unsubscribe: make(chan *Subscription, queueSize),
 		clientMsg:   make(chan *ClientMessageWrapper, queueSize),
 		cleanup:     make(chan *Client, queueSize),
+		manage:      make(chan subscriptionOperation),
 		logger:      logger,
 		metrics:     metrics,
 		ctx:         ctx,
@@ -78,9 +85,55 @@ func (s *HubShard) EnqueueClientMessage(msg *ClientMessageWrapper) bool {
 	}
 }
 
+func (s *HubShard) withSubscriptions(fn func(*SubscriptionManager)) bool {
+	done := make(chan struct{})
+	op := subscriptionOperation{fn: fn, done: done}
+
+	select {
+	case s.manage <- op:
+	case <-s.ctx.Done():
+		return false
+	}
+
+	select {
+	case <-done:
+		return true
+	case <-s.ctx.Done():
+		return false
+	}
+}
+
+func (s *HubShard) ChannelSnapshots(filterByPrefix string) []ChannelSnapshot {
+	var snapshots []ChannelSnapshot
+	s.withSubscriptions(func(sm *SubscriptionManager) {
+		snapshots = sm.SnapshotChannels(filterByPrefix)
+	})
+	return snapshots
+}
+
+func (s *HubShard) ChannelSnapshot(channel string) ChannelSnapshot {
+	var snapshot ChannelSnapshot
+	s.withSubscriptions(func(sm *SubscriptionManager) {
+		snapshot = sm.SnapshotChannel(channel)
+	})
+	return snapshot
+}
+
+func (s *HubShard) ClientsForUser(userID string) []*Client {
+	var clients []*Client
+	s.withSubscriptions(func(sm *SubscriptionManager) {
+		clients = sm.ClientsForUser(userID)
+	})
+	return clients
+}
+
 func (s *HubShard) Run() {
 	for {
 		select {
+		case op := <-s.manage:
+			op.fn(s.subs)
+			close(op.done)
+
 		case c := <-s.cleanup:
 			s.subs.RemoveClient(c)
 

@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"encoding/json"
+	"sort"
 	"strings"
 
 	"github.com/gorilla/websocket"
@@ -28,6 +29,13 @@ type SubscriptionManager struct {
 	logger       *zap.Logger
 	webhook      *WebhookManager
 	metrics      *Metrics
+}
+
+type ChannelSnapshot struct {
+	Name              string
+	SubscriptionCount int
+	UserIDs           []string
+	Presence          bool
 }
 
 func NewSubscriptionManager(logger *zap.Logger, metrics *Metrics, webhook *WebhookManager) *SubscriptionManager {
@@ -325,4 +333,54 @@ func (sm *SubscriptionManager) RemoveClient(client *Client) {
 
 func (sm *SubscriptionManager) GetClients(channel string) map[*Client]bool {
 	return sm.channels[channel]
+}
+
+func (sm *SubscriptionManager) SnapshotChannels(filterByPrefix string) []ChannelSnapshot {
+	snapshots := make([]ChannelSnapshot, 0, len(sm.channels))
+	for channel, clients := range sm.channels {
+		if len(clients) == 0 {
+			continue
+		}
+		if filterByPrefix != "" && !strings.HasPrefix(channel, filterByPrefix) {
+			continue
+		}
+		snapshots = append(snapshots, sm.SnapshotChannel(channel))
+	}
+	return snapshots
+}
+
+func (sm *SubscriptionManager) SnapshotChannel(channel string) ChannelSnapshot {
+	clients := sm.channels[channel]
+	snapshot := ChannelSnapshot{
+		Name:              channel,
+		SubscriptionCount: len(clients),
+	}
+
+	if members, ok := sm.presence[channel]; ok {
+		snapshot.Presence = true
+		snapshot.UserIDs = make([]string, 0, len(members))
+		for userID := range members {
+			snapshot.UserIDs = append(snapshot.UserIDs, userID)
+		}
+		sort.Strings(snapshot.UserIDs)
+	}
+
+	return snapshot
+}
+
+func (sm *SubscriptionManager) ClientsForUser(userID string) []*Client {
+	clients := make(map[*Client]struct{})
+	for _, userByClient := range sm.clientToUser {
+		for client, subscribedUserID := range userByClient {
+			if subscribedUserID == userID {
+				clients[client] = struct{}{}
+			}
+		}
+	}
+
+	result := make([]*Client, 0, len(clients))
+	for client := range clients {
+		result = append(result, client)
+	}
+	return result
 }

@@ -1,6 +1,6 @@
 # Pogo WebSocket
 
-**An experimental native real-time module for FrankenPHP applications.**
+**A native Reverb-compatible real-time module for FrankenPHP applications.**
 
 - A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
 - CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_broadcast_multi` allow PHP to broadcast messages instantly and return native status codes for precise failures.
@@ -28,6 +28,8 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
   `POST /apps/{appId}/events` and `POST /apps/{appId}/batch_events` requests
   from Laravel's built-in `reverb` broadcaster, including `socket_id`
   exclusion for `toOthers()`.
+- **Reverb-compatible Management API:** Supports signed channel, presence user,
+  connection count, and user termination endpoints for local-process state.
 - **Benchmark Harness:** A reproducible benchmark setup is available in the
   `benchmarks/` workspace. Current results are experimental and
   topology-specific, so this README intentionally does not quote headline
@@ -38,19 +40,18 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
 
 ## Production status
 
-Pogo WebSocket is experimental and its API may change. It is suitable for demos,
-local testing, and controlled evaluation of a FrankenPHP-native WebSocket
-runtime.
-
-Do not yet present it as a production substitute for Laravel Reverb, Pusher, or
-other hosted realtime systems. Validate behavior, benchmarks, and failure modes
-for your topology before using it with production traffic.
+Pogo WebSocket targets Laravel Reverb-compatible broadcasting with the standard
+Laravel `reverb` broadcaster and Echo/Pusher clients. Validate capacity,
+observability, and failure modes for your topology before using it with
+production traffic.
 
 Supported Pusher protocol behavior is intentionally scoped: connection
 establishment, ping/pong, public/private/presence subscriptions, client events on
 private and presence channels, `pusher:signin`, and signed HTTP event/batch
-publishing. Features such as durable delivery, replay, encrypted channels,
-watchlists, and Pusher management/statistics APIs are not implemented.
+publishing. Reverb/Pusher management endpoints for channels, channel users,
+connection counts, and user termination are implemented for the local process.
+Features such as durable delivery, replay, encrypted channels, watchlists,
+statistics APIs, and cluster-wide management aggregation are not implemented.
 
 ---
 

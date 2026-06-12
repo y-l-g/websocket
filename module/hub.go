@@ -309,6 +309,54 @@ func (h *Hub) Unregister(c *Client) {
 	h.wg.Done()
 }
 
+func (h *Hub) ConnectionIDs() []string {
+	h.clientsMu.RLock()
+	defer h.clientsMu.RUnlock()
+
+	ids := make([]string, 0, len(h.clients))
+	for client := range h.clients {
+		ids = append(ids, client.ID)
+	}
+	return ids
+}
+
+func (h *Hub) ChannelSnapshots(filterByPrefix string) []ChannelSnapshot {
+	snapshots := []ChannelSnapshot{}
+	for _, shard := range h.shards {
+		snapshots = append(snapshots, shard.ChannelSnapshots(filterByPrefix)...)
+	}
+	return snapshots
+}
+
+func (h *Hub) ChannelSnapshot(channel string) ChannelSnapshot {
+	return h.getShard(channel).ChannelSnapshot(channel)
+}
+
+func (h *Hub) TerminateUserConnections(userID string) int {
+	clients := make(map[*Client]struct{})
+
+	h.clientsMu.RLock()
+	for client := range h.clients {
+		if client.UserID() == userID {
+			clients[client] = struct{}{}
+		}
+	}
+	h.clientsMu.RUnlock()
+
+	for _, shard := range h.shards {
+		for _, client := range shard.ClientsForUser(userID) {
+			clients[client] = struct{}{}
+		}
+	}
+
+	for client := range clients {
+		client.Disconnect()
+		h.Unregister(client)
+	}
+
+	return len(clients)
+}
+
 func (h *Hub) Wait() {
 	<-h.done
 }
