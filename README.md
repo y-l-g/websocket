@@ -274,6 +274,8 @@ Set `POGO_WS_HOT_PATH_METRICS=true` to enable detailed per-message fanout, queue
 - Laravel's standard `/broadcasting/auth` endpoint signs private and presence
   channel subscriptions. The module validates those Pusher-compatible signatures
   locally before joining the channel.
+- Signed `/apps/*` HTTP API requests require `auth_version=1.0`, a valid HMAC,
+  and a fresh `auth_timestamp`.
 - Webhook notifications are best-effort and may be dropped when the webhook queue
   is full or the module is shutting down.
 

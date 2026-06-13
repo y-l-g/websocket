@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -89,6 +90,26 @@ func TestPusherAPIRejectsInvalidSignature(t *testing.T) {
 
 	body := []byte(`{"name":"event","data":"{}","channel":"public-a"}`)
 	req := httptest.NewRequest(http.MethodPost, "/apps/test-app/events?auth_key=test-key&auth_signature=nope", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+
+	module.servePusherAPI(rr, req)
+
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestPusherAPIRejectsStaleSignatureTimestamp(t *testing.T) {
+	module, _, cleanup := newHTTPAPITestModule(t)
+	defer cleanup()
+
+	body := []byte(`{"name":"event","data":"{}","channel":"public-a"}`)
+	staleTimestamp := time.Now().Add(-10 * time.Minute).Unix()
+	req := httptest.NewRequest(
+		http.MethodPost,
+		signedPusherURLWithMethodAt(http.MethodPost, "/apps/test-app/events", body, "test-key", "secret", staleTimestamp),
+		bytes.NewReader(body),
+	)
 	rr := httptest.NewRecorder()
 
 	module.servePusherAPI(rr, req)
@@ -344,6 +365,10 @@ func signedPusherURL(path string, body []byte, key string, secret string) string
 }
 
 func signedPusherURLWithMethod(method string, rawPath string, body []byte, key string, secret string) string {
+	return signedPusherURLWithMethodAt(method, rawPath, body, key, secret, time.Now().Unix())
+}
+
+func signedPusherURLWithMethodAt(method string, rawPath string, body []byte, key string, secret string, timestamp int64) string {
 	parsed, err := url.Parse(rawPath)
 	if err != nil {
 		panic(err)
@@ -355,7 +380,7 @@ func signedPusherURLWithMethod(method string, rawPath string, body []byte, key s
 		params[key] = strings.Join(values, ",")
 	}
 	params["auth_key"] = key
-	params["auth_timestamp"] = "1"
+	params["auth_timestamp"] = strconv.FormatInt(timestamp, 10)
 	params["auth_version"] = "1.0"
 
 	if len(body) > 0 {

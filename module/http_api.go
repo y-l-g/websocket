@@ -10,10 +10,13 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 )
 
 const maxHTTPAPIRequestBody = 2 * 1024 * 1024
+const maxHTTPSignatureAge = 5 * time.Minute
 
 type pusherEventRequest struct {
 	Name     string   `json:"name"`
@@ -152,6 +155,20 @@ func pusherAPIMethod(action string) string {
 func (m *WebsocketModule) verifyPusherHTTPSignature(r *http.Request, body []byte) bool {
 	query := r.URL.Query()
 	if query.Get("auth_key") != m.AppKey {
+		return false
+	}
+	if query.Get("auth_version") != "1.0" {
+		return false
+	}
+
+	timestamp, err := strconv.ParseInt(query.Get("auth_timestamp"), 10, 64)
+	if err != nil || timestamp <= 0 {
+		return false
+	}
+
+	signedAt := time.Unix(timestamp, 0)
+	now := time.Now()
+	if now.Sub(signedAt) > maxHTTPSignatureAge || signedAt.Sub(now) > maxHTTPSignatureAge {
 		return false
 	}
 

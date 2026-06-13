@@ -16,6 +16,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -318,7 +319,7 @@ func expectSubscriptionSucceeded(t *testing.T, ws *websocket.Conn) {
 func signedPusherPath(path string, body []byte, key string, secret string) string {
 	params := map[string]string{
 		"auth_key":       key,
-		"auth_timestamp": "1",
+		"auth_timestamp": strconv.FormatInt(time.Now().Unix(), 10),
 		"auth_version":   "1.0",
 	}
 	if len(body) > 0 {
