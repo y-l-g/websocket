@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -18,15 +17,7 @@ import (
 )
 
 func TestCluster(t *testing.T) {
-	rootDir, _ := filepath.Abs("../../")
-	binPath := os.Getenv("FRANKENPHP_BINARY")
-	if binPath == "" {
-		binPath = filepath.Join(rootDir, "frankenphp")
-	}
-
-	if _, err := os.Stat(binPath); os.IsNotExist(err) {
-		t.Skipf("Skipping Cluster test: binary not found at %s", binPath)
-	}
+	rootDir, binPath := integrationRootAndBinary(t)
 
 	mr, err := miniredis.Run()
 	if err != nil {

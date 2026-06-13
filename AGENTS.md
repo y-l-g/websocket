@@ -12,3 +12,5 @@ export CGO_CPPFLAGS="$($PHP_CONFIG --includes)"
 export CGO_LDFLAGS="-L$PHP_PREFIX/lib -Wl,-rpath,$PHP_PREFIX/lib $($PHP_CONFIG --ldflags) $($PHP_CONFIG --libs)"
 go test -v ./... -tags=nobadger,nomysql,nopgx,nowatcher -mod=readonly
 ```
+
+`module/frankenphp` must exist, or `FRANKENPHP_BINARY` must point at a FrankenPHP binary built with this module; tests now fail instead of skipping integration coverage when that binary is absent.
