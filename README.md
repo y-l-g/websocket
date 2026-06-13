@@ -32,10 +32,6 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
   requests for compatibility with external publishers.
 - **Reverb-compatible Management API:** Supports signed channel, presence user,
   connection count, and user termination endpoints for local-process state.
-- **Benchmark Harness:** A reproducible benchmark setup is available in the
-  `benchmarks/` workspace. Current results are experimental and
-  topology-specific, so this README intentionally does not quote headline
-  performance numbers.
 - **Prepared Broadcast Fanout:** Optimizes CPU usage by encoding broadcast payloads once per channel fanout.
 - **DoS Protection:** Built-in Token Bucket Rate Limiting, Handshake Throttling, and Circuit Breakers for PHP Auth.
 - **Horizontal Scaling:** Redis Pub/Sub support for multi-node clusters with at-most-once delivery semantics.

@@ -79,5 +79,4 @@ jobs:
           VALIDATE_YAML: true
           VALIDATE_MARKDOWN: true
           VALIDATE_BASH: true
-          FILTER_REGEX_EXCLUDE: .*/benchmarks/.*
           DEFAULT_BRANCH: main
