@@ -17,6 +17,16 @@ func newTestSubManager() *SubscriptionManager {
 	)
 }
 
+func drainClientMessage(t *testing.T, client *Client) {
+	t.Helper()
+
+	select {
+	case <-client.send:
+	default:
+		t.Fatal("Expected client message")
+	}
+}
+
 func TestPresenceParsing(t *testing.T) {
 	sm := newTestSubManager()
 
@@ -120,6 +130,68 @@ func TestMemberTracking(t *testing.T) {
 		}
 	default:
 		t.Error("C1 did not receive member_removed event")
+	}
+}
+
+func TestPresenceStateRemovedAfterLastUnsubscribe(t *testing.T) {
+	sm := newTestSubManager()
+	channel := "presence-room"
+	client := &Client{ID: "c1", send: make(chan any, 10)}
+	auth := []byte(`{"channel_data": "{\"user_id\":\"A\"}"}`)
+
+	if !sm.Subscribe(client, channel, auth) {
+		t.Fatal("Expected presence subscribe to succeed")
+	}
+	drainClientMessage(t, client)
+
+	sm.Unsubscribe(client, channel)
+
+	if _, ok := sm.channels[channel]; ok {
+		t.Fatal("Expected channel subscription map to be removed")
+	}
+	if _, ok := sm.presence[channel]; ok {
+		t.Fatal("Expected presence map to be removed")
+	}
+	if _, ok := sm.clientToUser[channel]; ok {
+		t.Fatal("Expected client-to-user map to be removed")
+	}
+	if chans, ok := sm.clients[client]; ok && chans[channel] {
+		t.Fatal("Expected client channel subscription to be removed")
+	}
+}
+
+func TestPresenceSameUserStateRemainsUntilLastConnectionLeaves(t *testing.T) {
+	sm := newTestSubManager()
+	channel := "presence-room"
+	c1 := &Client{ID: "c1", send: make(chan any, 10)}
+	c2 := &Client{ID: "c2", send: make(chan any, 10)}
+	auth := []byte(`{"channel_data": "{\"user_id\":\"A\"}"}`)
+
+	if !sm.Subscribe(c1, channel, auth) {
+		t.Fatal("Expected first presence subscribe to succeed")
+	}
+	drainClientMessage(t, c1)
+	if !sm.Subscribe(c2, channel, auth) {
+		t.Fatal("Expected second presence subscribe to succeed")
+	}
+	drainClientMessage(t, c2)
+
+	sm.Unsubscribe(c1, channel)
+
+	if _, ok := sm.presence[channel]["A"]; !ok {
+		t.Fatal("Expected user A to remain present after first connection leaves")
+	}
+	if clientMap, ok := sm.clientToUser[channel]; !ok || len(clientMap) != 1 || clientMap[c2] != "A" {
+		t.Fatalf("Expected only second connection to remain in client-to-user map, got %#v", clientMap)
+	}
+
+	sm.Unsubscribe(c2, channel)
+
+	if _, ok := sm.presence[channel]; ok {
+		t.Fatal("Expected presence map to be removed after last connection leaves")
+	}
+	if _, ok := sm.clientToUser[channel]; ok {
+		t.Fatal("Expected client-to-user map to be removed after last connection leaves")
 	}
 }
 

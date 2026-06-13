@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -180,6 +181,80 @@ func TestHubShutdownTimeoutBoundsWait(t *testing.T) {
 	hub.Wait()
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("Shutdown wait was not bounded, elapsed=%s", elapsed)
+	}
+}
+
+func TestHubRegisterEnforcesMaxConnectionsConcurrently(t *testing.T) {
+	logger := zap.NewNop()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	metrics := NewMetrics(prometheus.NewRegistry())
+	hub := NewHub("test-app", logger, ctx, metrics, nil, nil, &MockBroker{}, 1, 1, DefaultPingPeriod, DefaultDeliveryConfig())
+
+	const totalClients = 20
+	type registration struct {
+		client   *Client
+		conn     *MockWSConnection
+		accepted bool
+	}
+
+	registrations := make([]registration, totalClients)
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i := 0; i < totalClients; i++ {
+		clientCtx, clientCancel := context.WithCancel(ctx)
+		t.Cleanup(clientCancel)
+
+		conn := NewMockWSConnection()
+		client := &Client{
+			ID:     fmt.Sprintf("client-%02d", i),
+			hub:    hub,
+			conn:   conn,
+			send:   make(chan any, 1),
+			ctx:    clientCtx,
+			cancel: clientCancel,
+		}
+		registrations[i].client = client
+		registrations[i].conn = conn
+
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			registrations[i].accepted = hub.Register(registrations[i].client)
+		}(i)
+	}
+
+	close(start)
+	wg.Wait()
+
+	acceptedCount := 0
+	var acceptedClient *Client
+	for i, registration := range registrations {
+		if registration.accepted {
+			acceptedCount++
+			acceptedClient = registration.client
+			continue
+		}
+		if !registration.conn.CloseCalled {
+			t.Fatalf("rejected client %d connection was not closed", i)
+		}
+	}
+
+	if acceptedCount != 1 {
+		t.Fatalf("accepted %d clients, want 1", acceptedCount)
+	}
+	if got := hub.conns.Load(); got != 1 {
+		t.Fatalf("hub.conns = %d, want 1", got)
+	}
+	if ids := hub.ConnectionIDs(); len(ids) != 1 {
+		t.Fatalf("ConnectionIDs length = %d, want 1: %v", len(ids), ids)
+	}
+
+	hub.Unregister(acceptedClient)
+	if got := hub.conns.Load(); got != 0 {
+		t.Fatalf("hub.conns after unregister = %d, want 0", got)
 	}
 }
 

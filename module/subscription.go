@@ -318,6 +318,12 @@ func (sm *SubscriptionManager) handlePresenceUnsubscribe(client *Client, channel
 					}
 				}
 			}
+			if len(clientMap) == 0 {
+				delete(sm.clientToUser, channel)
+			}
+			if members, ok := sm.presence[channel]; ok && len(members) == 0 {
+				delete(sm.presence, channel)
+			}
 		}
 	}
 }

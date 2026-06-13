@@ -248,7 +248,9 @@ func (h *Hub) getShard(key string) *HubShard {
 }
 
 func (h *Hub) Register(c *Client) bool {
-	if h.conns.Load() >= h.maxConnections {
+	h.clientsMu.Lock()
+	if int64(len(h.clients)) >= h.maxConnections {
+		h.clientsMu.Unlock()
 		h.logger.Warn("Hub: max connections reached, rejecting", zap.String("id", c.ID))
 
 		// Protocol Compliance: Send 4100 Over Capacity
@@ -259,8 +261,6 @@ func (h *Hub) Register(c *Client) bool {
 		_ = c.conn.Close()
 		return false
 	}
-
-	h.clientsMu.Lock()
 	h.clients[c] = true
 	h.clientsMu.Unlock()
 

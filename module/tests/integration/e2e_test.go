@@ -14,7 +14,6 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,15 +24,7 @@ import (
 )
 
 func TestEndToEnd(t *testing.T) {
-	rootDir, _ := filepath.Abs("../../")
-	binPath := os.Getenv("FRANKENPHP_BINARY")
-	if binPath == "" {
-		binPath = filepath.Join(rootDir, "frankenphp")
-	}
-
-	if _, err := os.Stat(binPath); os.IsNotExist(err) {
-		t.Skipf("Skipping E2E test: binary not found at %s", binPath)
-	}
+	rootDir, binPath := integrationRootAndBinary(t)
 
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
