@@ -14,7 +14,7 @@ class InstallCommand extends Command
 
     public function handle(): int
     {
-        $this->components->info('Installing Pogo WebSocket for Laravel Reverb compatibility...');
+        $this->components->info('Installing Pogo WebSocket native broadcaster...');
 
         $this->publishConfiguration();
         $this->installChannelsRoutes();
@@ -30,6 +30,7 @@ class InstallCommand extends Command
             'Install frontend dependencies if needed: [npm install --save-dev laravel-echo pusher-js].',
             'Run [npm run build] to compile the frontend.',
             'Restart FrankenPHP/Caddy with matching REVERB_APP_ID, REVERB_APP_KEY, and REVERB_APP_SECRET.',
+            'Use ShouldBroadcastNow or same-process broadcasting for the native publish path.',
         ]);
 
         return self::SUCCESS;
@@ -102,23 +103,16 @@ class InstallCommand extends Command
 
         $content = $filesystem->get($configPath);
 
-        if (str_contains($content, "'reverb' => [")) {
+        if (str_contains($content, "'pogo' => [")) {
             return;
         }
 
         $driverConfig = <<<'CONFIG'
-                    'reverb' => [
-                        'driver' => 'reverb',
+                    'pogo' => [
+                        'driver' => 'pogo',
                         'key' => env('REVERB_APP_KEY'),
                         'secret' => env('REVERB_APP_SECRET'),
                         'app_id' => env('REVERB_APP_ID'),
-                        'options' => [
-                            'host' => env('REVERB_HOST', '127.0.0.1'),
-                            'port' => env('REVERB_PORT', 8080),
-                            'scheme' => env('REVERB_SCHEME', 'http'),
-                            'useTLS' => env('REVERB_SCHEME', 'http') === 'https',
-                        ],
-                        'client_options' => [],
                     ],
 
             CONFIG;
@@ -151,7 +145,7 @@ class InstallCommand extends Command
         $scheme = $this->envString('REVERB_SCHEME', 'http');
 
         Env::writeVariables([
-            'BROADCAST_CONNECTION' => 'reverb',
+            'BROADCAST_CONNECTION' => 'pogo',
             'REVERB_APP_ID' => $appId,
             'REVERB_APP_KEY' => $appKey,
             'REVERB_APP_SECRET' => $appSecret,

@@ -1,9 +1,9 @@
 # Pogo WebSocket
 
-**A native Reverb-compatible real-time module for FrankenPHP applications.**
+**A native Reverb-compatible WebSocket runtime for FrankenPHP applications.**
 
 - A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
-- CGO-exported functions `pogo_websocket_publish` and `pogo_websocket_broadcast_multi` allow PHP to broadcast messages instantly and return native status codes for precise failures.
+- A Laravel `pogo` broadcaster that publishes through CGO-exported native functions instead of HTTP
 - Optional FrankenPHP `ExtensionWorker` authentication fallback for clients that
   do not send standard Pusher channel signatures.
 
@@ -14,7 +14,7 @@
 This repository is intentionally limited to the websocket extension and its package-level validation:
 
 - `module/`: the Go/Caddy/FrankenPHP websocket module.
-- `lib/`: the Laravel installer/package helpers and optional native broadcaster.
+- `lib/`: the Laravel installer/package helpers and native broadcaster.
 - `module/tests/`: module unit, integration, and low-level performance tests.
 
 Full application showcases belong in `pogoShowcase`. Keep this repository focused on code that ships with, tests, or measures the websocket package.
@@ -24,10 +24,12 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
 ## Features
 
 - **Pusher-Compatible Protocol Subset:** Supports public, private, and presence channels, client events, and user authentication for Echo/Pusher-style clients.
-- **Reverb-compatible Event Publishing:** Accepts signed Pusher HTTP
-  `POST /apps/{appId}/events` and `POST /apps/{appId}/batch_events` requests
-  from Laravel's built-in `reverb` broadcaster, including `socket_id`
-  exclusion for `toOthers()`.
+- **Native Laravel Publishing:** The installed `pogo` broadcaster calls
+  `pogo_websocket_broadcast_multi` / `pogo_websocket_publish` directly and turns
+  native status codes into `BroadcastException`.
+- **Reverb-compatible HTTP Publishing:** The runtime also accepts signed Pusher
+  HTTP `POST /apps/{appId}/events` and `POST /apps/{appId}/batch_events`
+  requests for compatibility with external publishers.
 - **Reverb-compatible Management API:** Supports signed channel, presence user,
   connection count, and user termination endpoints for local-process state.
 - **Benchmark Harness:** A reproducible benchmark setup is available in the
@@ -40,10 +42,11 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
 
 ## Production status
 
-Pogo WebSocket targets Laravel Reverb-compatible broadcasting with the standard
-Laravel `reverb` broadcaster and Echo/Pusher clients. Validate capacity,
-observability, and failure modes for your topology before using it with
-production traffic.
+Pogo WebSocket targets Laravel applications running on FrankenPHP where the
+primary publish path can run in the same native process as the WebSocket hub.
+The default install uses Laravel's `pogo` broadcaster and the browser still uses
+Echo's Reverb/Pusher-compatible protocol. Validate capacity, observability, and
+failure modes for your topology before using it with production traffic.
 
 Supported Pusher protocol behavior is intentionally scoped: connection
 establishment, ping/pong, public/private/presence subscriptions, client events on
@@ -52,6 +55,23 @@ publishing. Reverb/Pusher management endpoints for channels, channel users,
 connection counts, and user termination are implemented for the local process.
 Features such as durable delivery, replay, encrypted channels, watchlists,
 statistics APIs, and cluster-wide management aggregation are not implemented.
+
+### Publishing paths
+
+Pogo has one installed default path:
+
+- `BROADCAST_CONNECTION=pogo` uses the native CGO functions. Use it for
+  `ShouldBroadcastNow` or other broadcasts executed by the FrankenPHP/Pogo
+  process that owns the active hub. There is no HTTP fallback: if the native
+  extension or hub is missing, the broadcaster fails with a clear
+  `BroadcastException`.
+
+The runtime also exposes a compatibility path:
+
+- `BROADCAST_CONNECTION=reverb` can be configured manually if broadcasts must be
+  sent from a separate CLI queue worker, another container, or another service.
+  That path uses Laravel's Reverb/Pusher HTTP publisher and requires the Pusher
+  PHP SDK. It is useful, but it is not the native Pogo path.
 
 ---
 
@@ -90,7 +110,7 @@ COPY --from=builder /usr/local/bin/frankenphp /usr/local/bin/frankenphp
 
 Then copy your app and `Caddyfile` into the runner image as usual.
 
-### Step 2: Install the Laravel Reverb-compatible package
+### Step 2: Install the Laravel package
 
 ```bash
 composer require pogo/websocket
@@ -186,19 +206,18 @@ configured and a client omits `auth`, the module falls back to a FrankenPHP auth
 worker and validates the worker's returned signature before subscribing the
 client.
 
-Native publish functions return `0` on success. Nonzero status codes indicate:
+The native publish functions return `0` on success. Nonzero status codes indicate:
 `1` hub missing, `2` channel too long, `3` event too long, `4` payload too large,
 `5` invalid payload JSON, `6` broker publish failed, and `7` invalid multi-channel
 JSON, `8` broker queue full, and `9` shard queue full. Success means the message
 was accepted by the broker and shard queue; delivery to every connected client is
 at-most-once and may still fail for slow clients with full outbound queues. The
-optional native Laravel broadcaster turns native failures into
-`BroadcastException`.
+Laravel `pogo` broadcaster turns native failures into `BroadcastException`.
 
 Fill your .env
 
 ```ini
-BROADCAST_CONNECTION=reverb
+BROADCAST_CONNECTION=pogo
 REVERB_APP_ID=pogo-app
 REVERB_APP_KEY=change-me-to-a-random-public-app-key
 REVERB_APP_SECRET=change-me-to-a-long-random-secret
@@ -212,6 +231,10 @@ VITE_REVERB_HOST="${REVERB_HOST}"
 VITE_REVERB_PORT="${REVERB_PORT}"
 VITE_REVERB_SCHEME="${REVERB_SCHEME}"
 ```
+
+`BROADCAST_CONNECTION=pogo` selects the backend native publish path. The
+`VITE_REVERB_*` variables configure Echo's Reverb/Pusher-compatible browser
+connection to the same Pogo runtime.
 
 If `app_id`, `app_key`, or `app_secret` are omitted in the Caddyfile, the module
 reads `REVERB_APP_ID`, `REVERB_APP_KEY`, and `REVERB_APP_SECRET`.
