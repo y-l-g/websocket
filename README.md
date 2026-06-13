@@ -1,8 +1,8 @@
 # Pogo WebSocket
 
-**A native Reverb-compatible WebSocket runtime for FrankenPHP applications.**
+**A native Reverb/Pusher-compatible WebSocket runtime for FrankenPHP applications.**
 
-- A Caddy module that embeds a scalable, Pusher-compatible WebSocket server directly into the FrankenPHP binary
+- A Caddy module that embeds a scalable, Reverb/Pusher-compatible WebSocket server directly into the FrankenPHP binary
 - A Laravel `pogo` broadcaster that publishes through CGO-exported native functions instead of HTTP
 - Optional FrankenPHP `ExtensionWorker` authentication fallback for clients that
   do not send standard Pusher channel signatures.
@@ -23,7 +23,7 @@ Full application showcases belong in `pogoShowcase`. Keep this repository focuse
 
 ## Features
 
-- **Pusher-Compatible Protocol Subset:** Supports public, private, and presence channels, client events, and user authentication for Echo/Pusher-style clients.
+- **Reverb/Pusher-Compatible Protocol Subset:** Supports public, private, and presence channels, client events, and user authentication for Echo/Pusher-style clients.
 - **Native Laravel Publishing:** The installed `pogo` broadcaster calls
   `pogo_websocket_broadcast_multi` / `pogo_websocket_publish` directly and turns
   native status codes into `BroadcastException`.
