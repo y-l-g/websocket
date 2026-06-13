@@ -81,8 +81,9 @@ func TestRedisBroker_Reconnection(t *testing.T) {
 		t.Fatalf("Failed to restart miniredis: %v", err)
 	}
 
-	reconnected := false
-	for i := 0; i < 10; i++ {
+	deadline := time.Now().Add(5 * time.Second)
+	var lastPublishErr error
+	for time.Now().Before(deadline) {
 		err := broker.Publish(ctx, &BroadcastMessage{
 			AppID:   "test-app",
 			Channel: "recovery-test",
@@ -94,19 +95,20 @@ func TestRedisBroker_Reconnection(t *testing.T) {
 			select {
 			case msg := <-subCh:
 				if msg.Channel == "recovery-test" {
-					reconnected = true
-					goto Done
+					return
 				}
 			default:
 			}
+		} else {
+			lastPublishErr = err
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 	}
 
-Done:
-	if !reconnected {
-		t.Log("Warning: Reconnection test timed out")
+	if lastPublishErr != nil {
+		t.Fatalf("Redis broker did not reconnect and deliver recovery-test message; last publish error: %v", lastPublishErr)
 	}
+	t.Fatal("Redis broker did not reconnect and deliver recovery-test message")
 }
 
 func TestRedisBroker_IsolatesApps(t *testing.T) {
