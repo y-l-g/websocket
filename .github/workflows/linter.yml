@@ -42,7 +42,7 @@ jobs:
       - name: Run golangci-lint go/...
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.4.0
+          version: v2.12.2
           args: --timeout=5m --build-tags=nobadger,nomysql,nopgx,nowatcher
           working-directory: module
         env:
